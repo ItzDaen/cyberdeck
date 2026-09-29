@@ -1,0 +1,11 @@
+{
+    "KPackageStructure": "Plasma/Theme",
+    "KPlugin": {
+        "Id": "Meridiano",
+        "Name": "Meridiano",
+        "Description": "Warm surfaces, 1px edges, a single amber accent. The colours follow the active scheme.",
+        "Author": "Daen",
+        "License": "GPL-3.0",
+        "Version": "1.0"
+    }
+}

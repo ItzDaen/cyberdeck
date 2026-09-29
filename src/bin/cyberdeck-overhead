@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# cyberdeck-overhead — Measures the desktop's footprint.
+# Author: Daen
+#
+# This used to be `cyberhud-perf-measure`: it measured the effect of
+# Stealth Performance Mode, which switched off the Matrix rain shader
+# to free VRAM. The shader is gone, so half of that script had nothing
+# left to measure. What remains is still needed, and is in fact more
+# useful than before: how much GPU and how much VRAM the desktop
+# spends, and how many audio analyses run in parallel.
+#
+# Usage:
+#   cyberdeck-overhead          once
+#   cyberdeck-overhead -w       every 2 seconds, until Ctrl-C
+# ==============================================================================
+set -uo pipefail
+
+BOLD=$'\e[1m'; DIM=$'\e[2m'; OFF=$'\e[0m'
+WATCH=0
+[ "${1:-}" = "-w" ] && WATCH=1
+
+# ── sysfs reads ──────────────────────────────────────────────────────────
+read_first() {
+    local f v
+    for f in /sys/class/drm/card*/device/"$1"; do
+        [ -r "$f" ] || continue
+        v="$(cat "$f" 2>/dev/null)"
+        [ -n "$v" ] && { printf '%s' "$v"; return 0; }
+    done
+    printf ''
+}
+
+measure() {
+    local vram_used vram_total gpu_busy used_mb total_mb pct cava_n
+
+    vram_used="$(read_first mem_info_vram_used)"
+    vram_total="$(read_first mem_info_vram_total)"
+    gpu_busy="$(read_first gpu_busy_percent)"
+
+    if [ -n "$vram_used" ] && [ -n "$vram_total" ] && [ "$vram_total" -gt 0 ] 2>/dev/null; then
+        used_mb="$(awk "BEGIN {printf \"%.0f\", $vram_used/1048576}")"
+        total_mb="$(awk "BEGIN {printf \"%.0f\", $vram_total/1048576}")"
+        pct=$(( vram_used * 100 / vram_total ))
+        printf "  VRAM        %6s / %s MB  (%s%%)\n" "$used_mb" "$total_mb" "$pct"
+    else
+        printf "  VRAM        non disponibile via sysfs\n"
+    fi
+
+    [ -n "$gpu_busy" ] && printf "  GPU         %s%% occupato\n" "$gpu_busy" \
+                      || printf "  GPU         non disponibile via sysfs\n"
+
+    # Count the cava processes: this is the thermometer for the parallel
+    # audio systems. There are three independent sources (background,
+    # bar, web dashboard) and each one launches its own FFT analysis of
+    # the same system stream. With two monitors the background starts
+    # two.
+    cava_n="$(pgrep -c -f 'cava -p /dev/stdin' 2>/dev/null || echo 0)"
+    printf "  Analisi audio attive: %s\n" "$cava_n"
+    if [ "$cava_n" -gt 2 ]; then
+        printf "  %s  %s sopra le 2 previste: ognuna e' una FFT duplicata.%s\n" \
+               "$DIM" "$cava_n" "$OFF"
+    fi
+}
+
+if [ "$WATCH" -eq 1 ]; then
+    printf "%sMonitoraggio continuo — Ctrl-C per uscire%s\n\n" "$DIM" "$OFF"
+    while true; do
+        clear
+        printf "%sCyberDeck — ingombro del desktop%s  %s%s%s\n\n" "$BOLD" "$OFF" "$DIM" "$(date +%H:%M:%S)" "$OFF"
+        measure
+        sleep 2
+    done
+else
+    printf "%sCyberDeck — ingombro del desktop%s\n\n" "$BOLD" "$OFF"
+    measure
+fi

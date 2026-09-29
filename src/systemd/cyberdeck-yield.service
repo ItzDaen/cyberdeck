@@ -1,0 +1,28 @@
+# Author: Daen
+#
+# The automatic half of the performance mode.
+#
+# It runs a detector pass every two seconds and prints nothing unless the
+# state actually changes, so an idle desktop costs one small file read and
+# no journal. A long-lived watcher on the configuration file would be
+# event-driven, and it was the other option; polling won because a timer
+# that systemd restarts is a timer that cannot be left in a bad state by
+# a crash, and two seconds is not a perceptible delay for "I just changed
+# the wallpaper".
+#
+# While a manual choice is in place -- ~/.cache/cyberdeck/yield-manual --
+# this does nothing at all. That check is inside cyberhud itself, next to
+# the write, so no caller can get around it.
+
+[Unit]
+Description=CyberDeck performance mode detector
+After=plasma-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/cyberhud performance --auto --quiet
+# systemd announces "Starting..." and "Finished..." for every oneshot,
+# which at one every two seconds is thirty lines a minute of a desktop
+# that is doing nothing. Warnings and errors still come through, which
+# is where the actual faults would be.
+LogLevelMax=warning

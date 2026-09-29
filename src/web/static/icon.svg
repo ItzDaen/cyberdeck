@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- CyberDeck — marchio
+       Stile "strumento analogico": superficie calda, un solo accento ambra,
+       simple shapes. No cyan-magenta gradient. -->
+  <rect width="512" height="512" rx="112" fill="#0e0d0b"/>
+
+  <!-- Cornice: 1px, mai 2px -->
+  <rect x="24" y="24" width="464" height="464" rx="96"
+        fill="#1a1917" stroke="#2a2825" stroke-width="2"/>
+
+  <!-- Quadrato di stato acceso, come nel pannello -->
+  <rect x="60" y="60" width="20" height="20" rx="3" fill="#ff9d2e"/>
+
+  <!-- Rettangolo di lettura: il quadrato del pannello, visto di fronte -->
+  <rect x="60" y="118" width="392" height="176" rx="10"
+        fill="#090908" stroke="#2a2825" stroke-width="2"/>
+
+  <!-- Traccia in riposo -->
+  <path d="M96 208 L180 208" fill="none" stroke="#35332f" stroke-width="10"
+        stroke-linecap="round"/>
+
+  <!-- Segnale: una sola tacca ambra, non un tracciato -->
+  <path d="M180 208 L252 132" fill="none" stroke="#ff9d2e" stroke-width="12"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M252 132 L312 232" fill="none" stroke="#6b7a6f" stroke-width="12"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M312 232 L416 208" fill="none" stroke="#35332f" stroke-width="10"
+        stroke-linecap="round"/>
+
+  <!-- Sette segmenti di corsia: il linguaggio del misuratore -->
+  <g fill="#22201d">
+    <rect x="60" y="326" width="46" height="30" rx="4"/>
+    <rect x="118" y="326" width="46" height="30" rx="4"/>
+    <rect x="176" y="326" width="46" height="30" rx="4"/>
+    <rect x="234" y="326" width="46" height="30" rx="4"/>
+    <rect x="292" y="326" width="46" height="30" rx="4"/>
+    <rect x="350" y="326" width="46" height="30" rx="4"/>
+    <rect x="408" y="326" width="44" height="30" rx="4"/>
+  </g>
+  <!-- Uno solo acceso -->
+  <rect x="60" y="326" width="46" height="30" rx="4" fill="#6b7a6f"/>
+  <rect x="118" y="326" width="46" height="30" rx="4" fill="#ff9d2e"/>
+
+  <!-- Filetto di base -->
+  <rect x="60" y="386" width="392" height="2" fill="#2a2825"/>
+
+  <!-- Piede: tre cifre, una sola accesa -->
+  <g fill="#565250">
+    <rect x="60" y="412" width="80" height="10" rx="3"/>
+    <rect x="160" y="412" width="80" height="10" rx="3"/>
+    <rect x="260" y="412" width="80" height="10" rx="3"/>
+  </g>
+  <rect x="360" y="412" width="92" height="10" rx="3" fill="#8a857c"/>
+</svg>

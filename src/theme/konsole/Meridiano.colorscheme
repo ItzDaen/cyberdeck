@@ -1,0 +1,150 @@
+# Author: Daen
+# Version: 1.0
+# Meridiano — Konsole palette
+#
+# ── Why it is not monochrome ──────────────────────────────────────────────
+# The theme's rule is that colour carries meaning, not decoration. In a
+# terminal colour *is* meaning: red is an error, green is a success. An
+# all-grey palette here would do real damage — a compiler error would
+# look like ordinary text.
+#
+# So the rule is a different one: the shades are all warm and low in
+# saturation, and there is exactly one live colour, amber, which is the
+# accent everywhere else in the theme too. The cold tints the default
+# terminal uses — bright cyan, blue, acid green — are pulled down and
+# pulled warm until they look like part of the same instrument rather
+# than three arbitrary tints.
+#
+# ── The numbers ───────────────────────────────────────────────────────────
+# Every colour is on the theme's ramp, from the #0e0d0b background to
+# the #e8e4dc text, with two exceptions: the amber #ff9d2e, which is
+# the accent, and the brick red #d8492f, which is the alarm. They are
+# the same two values as the colour scheme's and the telemetry panel's,
+# so an error has the same colour across the whole desktop.
+#
+# Black is not black. On a near-black background pure black is
+# invisible, and the edges of blocks disappear: #0e0d0b on #0e0d0b is
+# a line that is not there. That is why Color0 is raised to #1e1c19.
+[Background]
+Color=14,13,11
+Opacity=1.0
+
+[BackgroundFaint]
+Color=20,20,17
+Opacity=1.0
+
+[BackgroundIntense]
+Color=26,25,23
+Opacity=1.0
+
+[BackgroundFaintIntense]
+Color=32,30,27
+Opacity=1.0
+
+[Color0]
+Color=30,28,25
+Opacity=1.0
+
+[Color0Faint]
+Color=42,40,37
+Opacity=1.0
+
+[Color0Intense]
+Color=60,56,50
+Opacity=1.0
+
+[Color1]
+Color=216,73,47
+Opacity=1.0
+
+[Color1Faint]
+Color=150,66,48
+Opacity=1.0
+
+[Color1Intense]
+Color=232,104,72
+Opacity=1.0
+
+[Color2]
+Color=107,122,111
+Opacity=1.0
+
+[Color2Faint]
+Color=78,88,81
+Opacity=1.0
+
+[Color2Intense]
+Color=142,167,143
+Opacity=1.0
+
+[Color3]
+Color=200,150,90
+Opacity=1.0
+
+[Color3Faint]
+Color=142,110,68
+Opacity=1.0
+
+[Color3Intense]
+Color=255,157,46
+Opacity=1.0
+
+[Color4]
+Color=106,124,142
+Opacity=1.0
+
+[Color4Faint]
+Color=76,89,102
+Opacity=1.0
+
+[Color4Intense]
+Color=140,161,182
+Opacity=1.0
+
+[Color5]
+Color=150,122,132
+Opacity=1.0
+
+[Color5Faint]
+Color=106,88,95
+Opacity=1.0
+
+[Color5Intense]
+Color=188,158,168
+Opacity=1.0
+
+[Color6]
+Color=122,146,140
+Opacity=1.0
+
+[Color6Faint]
+Color=88,104,100
+Opacity=1.0
+
+[Color6Intense]
+Color=160,186,179
+Opacity=1.0
+
+[Color7]
+Color=232,228,220
+Opacity=1.0
+
+[Color7Faint]
+Color=180,175,166
+Opacity=1.0
+
+[Color7Intense]
+Color=255,252,248
+Opacity=1.0
+
+[Foreground]
+Color=232,228,220
+Opacity=1.0
+
+[ForegroundFaint]
+Color=138,133,124
+Opacity=1.0
+
+[ForegroundIntense]
+Color=255,252,248
+Opacity=1.0

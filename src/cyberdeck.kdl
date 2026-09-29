@@ -1,0 +1,21 @@
+// Author: Daen
+layout {
+    default_tab_template {
+        pane size=1 borderless=true {
+            plugin location="zellij:tab-bar"
+        }
+        children
+        pane size=2 borderless=true {
+            plugin location="zellij:status-bar"
+        }
+    }
+    tab name="CYBERDECK" focus=true {
+        pane split_direction="horizontal" {
+            pane name="TERMINAL // MATRIX" size="65%" focus=true
+            pane split_direction="vertical" size="35%" {
+                pane command="cava" name="AUDIO // CAVA" size="45%"
+                pane command="btop" name="TELEMETRY // BTOP" size="55%"
+            }
+        }
+    }
+}

@@ -1,0 +1,20 @@
+# Author: Daen
+[Unit]
+Description=CyberDeck - Workstation Controller & Mobile Stream Deck v1.0
+After=pipewire.service wireplumber.service tailscaled.service
+
+[Service]
+Type=simple
+# %h is the home of the user the unit runs as. The absolute path this
+# replaces was fine on one machine and wrong on every other, and a
+# repository that only installs for its author is a script with a .git
+# extension.
+ExecStart=/usr/bin/python3 %h/.local/share/cyberdeck/server.py
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

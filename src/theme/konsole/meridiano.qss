@@ -1,0 +1,80 @@
+/*
+ * Author: Daen
+ * Konsole — Meridiano style sheet
+ *
+ * Rewrites the scrollbars, which Qt draws with its own greys and
+ * which on a dark scheme are the one piece that does not obey. It used
+ * to be all bright cyan: it was the only thing left of the old theme,
+ * and on a near-black background it was the only spot on the screen
+ * that shouted.
+ *
+ * The same rules as the rest of the theme: 1px border, no shadows, no
+ * soft corners, and amber only where it means "you can act here" --
+ * mouse-over and pressed.
+ *
+ * The colours here are in hex and not in ColorScheme classes: this is
+ * Qt, not KSVGFrenchy, and Qt substitutes nothing. So the values are
+ * written down and have to be kept aligned by hand. That is a limit
+ * of the system, not a choice.
+ */
+
+/* ── Vertical bar ──────────────────────────────────────────────────── */
+QScrollBar:vertical {
+    border: none;
+    background: #16140f;
+    width: 10px;
+    margin: 0px;
+    border-left: 1px solid #2a2825;
+}
+
+QScrollBar::handle:vertical {
+    background: #6b7a6f;      /* il canale spento: è cromatura, non contenuto */
+    min-height: 28px;
+    border-radius: 1px;
+    margin: 2px 2px 2px 3px;
+}
+QScrollBar::handle:vertical:hover  { background: #ff9d2e; }
+QScrollBar::handle:vertical:pressed { background: #e8e4dc; }
+
+/* The arrows: in this theme the handles have no nubbin, so the arrows
+   do not get one either. A 3px rectangle you cannot see is better
+   than an arrow you can see and that serves no purpose. */
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+    background: transparent;
+    border: none;
+}
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+
+/* ── Horizontal bar ────────────────────────────────────────────────── */
+QScrollBar:horizontal {
+    border: none;
+    background: #16140f;
+    height: 10px;
+    margin: 0px;
+    border-top: 1px solid #2a2825;
+}
+
+QScrollBar::handle:horizontal {
+    background: #6b7a6f;
+    min-width: 28px;
+    border-radius: 1px;
+    margin: 3px 2px 2px 2px;
+}
+QScrollBar::handle:horizontal:hover  { background: #ff9d2e; }
+QScrollBar::handle:horizontal:pressed { background: #e8e4dc; }
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0px;
+    background: transparent;
+    border: none;
+}
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    background: transparent;
+}

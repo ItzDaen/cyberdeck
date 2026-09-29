@@ -1,0 +1,285 @@
+#!/usr/bin/env python3
+"""
+meridiano-apply — Applies the Meridiano theme to the desktop.
+
+Why this script exists
+──────────────────────
+In KDE 6 a `.colors` file is a *model*, not the active configuration.
+Applications read `~/.config/kdeglobals`, which holds a copy of the
+selected theme's values. Changing only the `ColorScheme=` key was not
+enough: the old values stayed in kdeglobals and the windows kept using
+the previous theme. That is exactly what happened while this theme was
+being built, and it is why the first test still showed Breeze's colour.
+
+So: read the model and write it into kdeglobals.
+
+How it writes
+─────────────
+Line by line, touching only the sections the theme defines and
+preserving everything else byte for byte. For two reasons:
+  - `kdeglobals` also holds shortcuts, `[Icons]`, `[KDE]`,
+    `[KFileDialog Settings]`: rewriting it from scratch would lose them
+  - if something goes wrong, the file has to stay recoverable
+
+Usage:
+    meridiano-apply            apply colours + decoration
+    meridiano-apply --colors   colours only
+    meridiano-apply --dry-run  show what it would do, write nothing
+"""
+
+from __future__ import annotations
+
+import argparse
+import configparser
+import os
+import re
+import shutil
+import sys
+import time
+from pathlib import Path
+
+HOME = Path.home()
+KDEGLOBALS = HOME / ".config" / "kdeglobals"
+SCHEME = "Meridiano"
+SRC = (Path(__file__).resolve().parent.parent / "src" / "theme"
+       / "color-schemes" / f"{SCHEME}.colors")
+THEMES = HOME / ".local" / "share" / "aurorae" / "themes"
+
+
+def tema_aurorae() -> str | None:
+    """The name of the Meridiano Aurorae theme that should be active.
+
+    Aurorae caches the metrics per theme *name*: after the files change
+    it does not re-read the theme, it only reloads when the name
+    changes. That is why suffixed copies (`Meridiano-1`, `-2`, `-3`...)
+    pile up: each one was the way of forcing a reload during the build.
+
+    The canonical name wins. `tools/genera-aurorae.py` always writes
+    `Meridiano`, and a name Aurorae has never loaded has no stale cache,
+    so pointing kwinrc at it is always correct. The suffixed copies are
+    historical artefacts and are only used if the plain one is missing.
+
+    Writing a hardwired name that does not exist on disk produces a
+    window with no decoration and no error at all, so the name has to
+    be resolved from disk rather than guessed.
+    """
+    THEMES.mkdir(parents=True, exist_ok=True)
+    if (THEMES / SCHEME).is_dir():
+        return SCHEME
+    candidati = [d for d in THEMES.glob(f"{SCHEME}-*") if d.is_dir()]
+    if not candidati:
+        return None
+
+    def ordine(d: pathlib.Path) -> int:
+        suffisso = d.name[len(SCHEME) + 1:]
+        return int(suffisso) if suffisso.isdigit() else -1
+
+    return max(candidati, key=ordine).name
+
+
+DECOR_NAME = tema_aurorae()
+DECOR = THEMES / DECOR_NAME if DECOR_NAME else THEMES / SCHEME
+
+# Sections the theme owns: they are replaced wholesale.
+OWNED = re.compile(
+    r"^\[(Colors:.*|ColorEffects:.*|WM)\]\s*$"
+)
+# kdeglobals sections that must NOT be touched.
+KEEP = ("Icons", "KDE", "Shortcuts", "KFileDialog Settings", "General")
+
+# A KDE section header: the name may carry a bracketed variant suffix, as
+# in `[Colors:Header][Inactive]`. The obvious spelling, `^\[([^\]]+)\]`,
+# cannot match that: it stops at the first `]`, so the rest of the line
+# is not `\s*$` and the line is not recognised as a section at all. It
+# then fell through as ordinary text, together with the key=value lines
+# under it, and the theme's inactive-header colours were never written
+# while the previous scheme's stayed forever. That is where the twelve
+# roles that refused to apply were living.
+#
+# Taking the name greedily up to the last `]` is what the format means.
+# A key=value line cannot be confused with a header: it does not begin
+# with `[`, and it does not end with `]` either.
+SEZIONE = re.compile(r"^\[(.+)\]\s*$")
+
+GREEN, YELLOW, RED, DIM, BOLD, OFF = (
+    "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[1m", "\033[0m"
+)
+
+
+def parse_scheme(path: Path) -> dict[str, dict[str, str]]:
+    """Returns {section: {key: value}} from the .colors model."""
+    cp = configparser.RawConfigParser(strict=False)
+    cp.optionxform = str          # the KDE keys are case-sensitive
+    cp.read(path, encoding="utf-8")
+    out: dict[str, dict[str, str]] = {}
+    for section in cp.sections():
+        if not OWNED.match(f"[{section}]"):
+            continue
+        out[section] = {k: v for k, v in cp.items(section)}
+    return out
+
+
+def backup() -> Path | None:
+    try:
+        dest = KDEGLOBALS.with_suffix(f".{time.strftime('%Y%m%d-%H%M%S')}.bak")
+        shutil.copy2(KDEGLOBALS, dest)
+        # Do not keep more than 10 copies.
+        for old in sorted(KDEGLOBALS.parent.glob("kdeglobals.*.bak"))[:-10]:
+            old.unlink(missing_ok=True)
+        return dest
+    except OSError:
+        return None
+
+
+def merge(scheme: dict[str, dict[str, str]], dry: bool) -> tuple[int, int]:
+    """Replaces the theme's sections in kdeglobals. Returns (updated, removed)."""
+    if not KDEGLOBALS.exists():
+        raise SystemExit(f"{RED}✗{OFF} not found: {KDEGLOBALS}")
+
+    lines = KDEGLOBALS.read_text(encoding="utf-8").splitlines(keepends=True)
+
+    out: list[str] = []
+    i = 0
+    touched = 0
+    dropped = 0
+
+    while i < len(lines):
+        line = lines[i]
+        m = SEZIONE.match(line)
+        if m and OWNED.match(line):
+            section = m.group(1)
+            # Consuma la sezione corrente.
+            j = i + 1
+            while j < len(lines) and not lines[j].lstrip().startswith("["):
+                j += 1
+
+            if section in scheme:
+                out.append(f"[{section}]\n")
+                for k, v in scheme[section].items():
+                    out.append(f"{k}={v}\n")
+                touched += 1
+            # If the section is not in the theme (for example a
+            # Colors:something the model does not define) it disappears:
+            # leaving it in would mean an old value that nobody updates
+            # any more.
+            else:
+                dropped += 1
+
+            i = j
+            continue
+
+        out.append(line)
+        i += 1
+
+    # ── [General]: the theme's name, the accent, and removal of the old
+    # hash ──
+    # The hash invalidates the Qt applications' cache. If the old one
+    # stays, an already open application goes on showing the previous
+    # theme.
+    text = "".join(out)
+    text = re.sub(r"^ColorScheme=.*$", f"ColorScheme={SCHEME}", text, count=1, flags=re.M)
+    if "ColorScheme=" not in text:
+        text = text.replace("[General]\n", f"[General]\nColorScheme={SCHEME}\n", 1)
+    text = re.sub(r"^ColorSchemeHash=.*$\n", "", text, flags=re.M)
+
+    # Plasma 6 keeps an accent override in [General] and it wins over the
+    # colour scheme: `AccentColor` is what the shell actually paints
+    # with, and it is independent of DecorationFocus. This section is in
+    # KEEP, so nothing else would ever correct it, and a value left by
+    # the scheme that came before survived every run of this tool -- the
+    # desktop showed that scheme's cyan while every other colour was
+    # right, which is the worst way for a theme to be wrong.
+    #
+    # The accent is taken from the model rather than written literally,
+    # so the two places that hold it cannot drift: DecorationFocus is the
+    # accent for the default, Complementary and Selection schemes alike.
+    accento = (scheme.get("Colors:Window", {}).get("DecorationFocus")
+               or scheme.get("Colors:View", {}).get("DecorationFocus"))
+    if accento:
+        if re.search(r"^AccentColor=.*$", text, flags=re.M):
+            text = re.sub(r"^AccentColor=.*$", f"AccentColor={accento}",
+                          text, count=1, flags=re.M)
+        else:
+            text = text.replace("[General]\n", f"[General]\nAccentColor={accento}\n", 1)
+        # Just a memory of what the user last picked in System Settings;
+        # left pointing at another scheme's colour it is a trap for the
+        # next person reading this file.
+        text = re.sub(r"^LastUsedCustomAccentColor=.*$\n", "", text, flags=re.M)
+
+    if not dry:
+        tmp = KDEGLOBALS.with_suffix(".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, KDEGLOBALS)
+
+    return touched, dropped
+
+
+def apply_decoration(dry: bool) -> bool:
+    """Points KWin at the Meridiano Aurorae decoration."""
+    KWINRC = HOME / ".config" / "kwinrc"
+    if not DECOR.exists():
+        print(f"  {YELLOW}!{OFF} decoration not found in {DECOR}")
+        return False
+    if dry:
+        print(f"  {DIM}would set {KWINRC} [org.kde.kdecoration2]{OFF}")
+        return True
+
+    text = KWINRC.read_text(encoding="utf-8") if KWINRC.exists() else ""
+    block = (
+        "[org.kde.kdecoration2]\n"
+        "library=org.kde.kwin.aurorae.v2\n"
+        f"theme=__aurorae__svg__{DECOR_NAME}\n"
+    )
+    if "[org.kde.kdecoration2]" in text:
+        text = re.sub(
+            r"\[org\.kde\.kdecoration2\].*?(?=\n\[|\Z)",
+            block.rstrip("\n"),
+            text, count=1, flags=re.S,
+        )
+    else:
+        text = text.rstrip("\n") + "\n\n" + block
+    tmp = KWINRC.with_suffix(".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, KWINRC)
+    return True
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Applies the Meridiano theme")
+    ap.add_argument("--colors", action="store_true", help="colours only, no decoration")
+    ap.add_argument("--dry-run", action="store_true", help="write nothing")
+    args = ap.parse_args()
+
+    if not SRC.exists():
+        raise SystemExit(f"{RED}✗{OFF} colour model not found: {SRC}")
+
+    print(f"{BOLD}Meridiano — theme application{OFF}")
+
+    scheme = parse_scheme(SRC)
+    print(f"  {DIM}model: {SRC.name}, {len(scheme)} sections{OFF}")
+
+    if not args.dry_run:
+        b = backup()
+        if b:
+            print(f"  {DIM}backup: {b.name}{OFF}")
+
+    touched, dropped = merge(scheme, args.dry_run)
+    verb = "would have updated" if args.dry_run else "updated"
+    print(f"  {GREEN}✓{OFF} {verb} {touched} colour sections")
+    if dropped:
+        print(f"  {GREEN}✓{OFF} removed {dropped} obsolete sections")
+
+    if not args.colors:
+        ok = apply_decoration(args.dry_run)
+        if ok:
+            print(f"  {GREEN}✓{OFF} window decoration set")
+
+    if args.dry_run:
+        print(f"\n{YELLOW}{BOLD}dry run: nothing written{OFF}")
+    else:
+        print(f"\n{GREEN}{BOLD}✓ applied{OFF}")
+        print(f"  {DIM}plasmashell and the Qt applications need a restart to pick it up{OFF}")
+
+
+if __name__ == "__main__":
+    main()

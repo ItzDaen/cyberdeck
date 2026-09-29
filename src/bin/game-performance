@@ -1,0 +1,108 @@
+#!/bin/bash
+# ==============================================================================
+# game-performance — the CachyOS game-performance helper, plus CyberDeck
+# performance mode.
+#
+# Why this file exists at all
+# ---------------------------
+# `game-performance %command%` as a launch option is a CachyOS thing:
+# /usr/bin/game-performance ships in the `cachos-settings` package and only
+# touches the CPU power profile through `powerprofilesctl launch -p
+# performance`. It knows nothing about wallpapers, GPUs or the GPU.
+#
+# This wrapper shadows it on PATH (~/.local/bin precedes /usr/bin) to add the
+# other half of what "performance mode" means here: yield the spectrum and
+# swap the animated wallpapers for the still one, on every screen, for as
+# long as the game runs. The CPU governor and the GPU are two different
+# resources, and a launch option that only frees one of them frees half.
+#
+# What it used to get wrong, all three measured
+# ---------------------------------------------
+# 1. It called `cyberhud performance on --auto`. `--auto` is the timer path,
+#    and it returns before `args` is ever read:
+#
+#        if getattr(args, "auto", False):
+#            # --auto means "hands off, run at full tilt", and it means
+#            # that unconditionally.
+#            if set_performance(False, manual=False, ...)
+#            return
+#
+#    So the command whose job is to turn performance mode ON was setting full
+#    tilt. `--auto` used to mean "let the detector decide"; the detector was
+#    then removed, and this wrapper was never updated. It now calls
+#    `performance on`, which is the manual path: YIELD plus the GPU-free
+#    wallpaper swap.
+#
+# 2. It looked for the manual marker at ~/.cache/cyberhud_perf_manual. That
+#    path does not exist. cyberhud uses ~/.cache/cyberdeck/yield-manual, so
+#    the check was always false and the "leave a hand-set mode alone" branch
+#    never ran. A stale constant read as a working guard.
+#
+# 3. On exit it called `performance off`, which sets a *manual* marker: the
+#    desktop was left in "full, by hand" instead of hands-off. `performance
+#    auto` is the way back — it clears the marker, hands the wallpaper back
+#    and says what is animating.
+#
+# Neither this wrapper nor /usr/bin/game-performance was in the repository,
+# which is why all three survived. It lives in src/bin/ now, and
+# sync-packages.sh installs it like the other binaries.
+# ==============================================================================
+
+REAL_BIN="/usr/bin/game-performance"
+
+if [ ! -x "$REAL_BIN" ]; then
+    echo "game-performance: $REAL_BIN not found or not executable" >&2
+    exit 1
+fi
+
+HUD="$HOME/.local/bin/cyberhud"
+if [ ! -x "$HUD" ]; then
+    echo "game-performance: $HUD not found, running the CachyOS helper alone" >&2
+    exec "$REAL_BIN" "$@"
+fi
+
+# The marker cyberhud actually writes. See `YIELD_MANUAL` in src/bin/cyberhud;
+# read it from there, do not copy the string.
+YIELD_MANUAL="$HOME/.cache/cyberdeck/yield-manual"
+
+LOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}/cyberhud_game_lock"
+mkdir -p "$LOCK_DIR" 2>/dev/null
+PID_FILE="$LOCK_DIR/$$"
+
+# Did the user set performance mode by hand before this game started? If so
+# this wrapper has no business changing it, in either direction.
+GAVE_UP_CONTROL=0
+if [ -f "$YIELD_MANUAL" ]; then
+    GAVE_UP_CONTROL=1
+    echo "game-performance: performance mode was set by hand, leaving it" >&2
+else
+    touch "$PID_FILE" 2>/dev/null
+    "$HUD" performance on >/dev/null 2>&1
+fi
+
+cleanup() {
+    if [ "$GAVE_UP_CONTROL" -eq 1 ]; then
+        # Not ours to undo.
+        [ -n "${PID_FILE:-}" ] && rm -f "$PID_FILE" 2>/dev/null
+        return 0
+    fi
+
+    rm -f "$PID_FILE" 2>/dev/null
+
+    # Another game may still be running: only the last one out turns the
+    # desktop back.
+    local remaining
+    remaining=$(find "$LOCK_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l)
+    if [ "$remaining" -eq 0 ]; then
+        # `auto`, not `off`: hands-off again, and it gives the wallpaper back.
+        "$HUD" performance auto >/dev/null 2>&1
+    fi
+}
+
+trap cleanup EXIT INT TERM HUP
+
+# Not `exec`. The CachyOS helper execs powerprofilesctl, which waits for the
+# game; exec here would replace this shell and the trap would never run, so
+# performance mode would stay on after the game exited. Waiting is the point.
+"$REAL_BIN" "$@"
+exit $?

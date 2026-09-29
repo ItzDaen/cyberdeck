@@ -1,0 +1,1421 @@
+#!/usr/bin/env python3
+"""
+cyberhud — telemetry panel manager.
+
+Author: Daen
+Platform: CachyOS Linux | KDE Plasma 6 (Wayland)
+
+Why Python, and not bash any more
+──────────────────────────────────
+v1.0 was a 234-line bash script that wrote into
+`plasma-org.kde.plasma.desktop-appletsrc` with `kwriteconfig6`. The
+problem was not the syntax, it was that it had to *know* which
+containments to use: the numbers 22 and 23 were hardcoded, once in the
+loop and once in `status`. Adding or removing a virtual desktop, or
+reordering the monitors, broke the placement and there was no way to
+notice except by looking at the panel.
+
+Here the containments are discovered: each screen has its resolution in
+the `ItemGeometries-<W>x<H>` key of its own containment, so all this has
+to do is compare that against what `kscreen-doctor` reports. No magic
+numbers.
+
+What is gone compared with v1.0
+────────────────────────────────
+  cyberhud performance ...   Stealth Performance Mode existed for one
+                             reason: to switch off the matrix rain
+                             shader. The shader is gone, so the mode had
+                             no reason to exist. That includes the button
+                             in the PWA, the CAVA sleep logic, and the
+                             files under ~/.cache.
+  cyberhud applet ...        It wrote applet geometry using hardcoded
+                             applet ids (808, 810). An applet's position
+                             is Plasma's now, and Plasma already records
+                             it per screen in the ItemGeometries: if
+                             this script wrote it as well, two instances
+                             on two monitors would share one position.
+
+Usage:
+    cyberhud status
+    cyberhud screens
+    cyberhud move top-right | top-left | top-center | bottom-right |
+                 bottom-left | center | <X> <Y>
+    cyberhud size <W> [H]
+    cyberhud toggle
+    cyberhud reset
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+# ── Constants ────────────────────────────────────────────────────────────────
+APPLETSRC = Path.home() / ".config" / "plasma-org.kde.plasma.desktop-appletsrc"
+WALLPAPER_PLUGIN = "cyberdeck.instrument.field"
+GROUP = "General"
+
+POSITIONS = (
+    "top-right", "top-left", "top-center",
+    "bottom-right", "bottom-left", "center",
+)
+
+DEFAULTS = {
+    "ShowHud": "true",
+    "HudPosition": "top-right",
+    "HudCustomX": "0",
+    "HudCustomY": "0",
+    "HudWidth": "460",
+    "HudHeight": "440",
+    "SpectrumBottomInset": "56",
+    "PerformanceMode": "false",
+}
+
+# Limits consistent with those declared in config.qml.
+LIMITS = {
+    "HudWidth": (300, 1400),
+    "HudHeight": (220, 1100),
+    "SpectrumBottomInset": (0, 200),
+}
+
+BACKUP_DIR = Path.home() / ".cache" / "cyberdeck-deploy"
+
+# ── Yielding: the signal, and the manual override ───────────────────────────
+#
+# Two files, and the split is v1.0's. YIELD_FILE is the published
+# signal: its presence means "something else on this desktop is
+# animating, give the room over". A third-party animated wallpaper can
+# read it and yield in turn, which is what makes the contract open
+# rather than a list this project has to be taught about.
+#
+# YIELD_MANUAL records that the user asked for this by hand. While it is
+# there the automatic path does nothing at all. Without it, a timer
+# firing every couple of seconds would silently undo a decision the user
+# made, and that is the one failure mode worth designing against.
+YIELD_FILE = Path.home() / ".cache" / "cyberdeck" / "yield"
+YIELD_MANUAL = YIELD_FILE.with_name("yield-manual")
+
+# What to put back when the manual performance mode is turned off.
+#
+# The performance mode exists for the times the whole GPU is wanted: a game,
+# or a render. Yielding the audio spectrum is not enough for either, because
+# a video wallpaper is the largest continuous GPU consumer on the desktop
+# and it belongs to somebody else. So the manual mode also takes that back,
+# and this file is how it gives it back again.
+#
+# It is a JSON object of containment id -> the plugin id that was there
+# before. The plugin's own settings are not copied: Plasma keeps a
+# `[Containments][N][Wallpaper][<plugin>][General]` group per plugin, so
+# switching back to the same id restores the video file and position that
+# were already recorded. Storing the id is enough, and storing anything
+# more would be a second copy of the truth that could drift.
+GPU_FREE_SAVED = YIELD_FILE.with_name("gpu-free-wallpapers.json")
+
+# Where the list of animated wallpaper plugins lives. It is in the
+# user's configuration directory, not in the repository: it is their
+# statement about their own desktop, and it is meant to be edited.
+ANIMATED_LIST = Path.home() / ".config" / "cyberdeck" / "animated-wallpapers.list"
+
+# Used when the list has not been deployed yet, so that detection still
+# works on a fresh install rather than silently deciding "nothing
+# animates" for ever.
+ANIMATED_FALLBACK = ("luisbocanegra.smart.video.wallpaper.reborn",)
+
+# The containments that are actually a screen. A panel carries a
+# wallpaperplugin too, and reading it would count the panel's
+# org.kde.image as if it were a desktop: on this machine containment 26
+# and 3 are panels, and treating them as screens would make the detector
+# see a third, non-existent screen.
+SCREEN_PLUGINS = ("org.kde.plasma.folder", "org.kde.desktopcontainment")
+
+DIM = "\033[2m"
+BOLD = "\033[1m"
+RESET = "\033[0m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+RED = "\033[31m"
+CYAN = "\033[36m"
+
+
+def supports_colour() -> bool:
+    return sys.stdout.isatty()
+
+
+def c(text: str, code: str) -> str:
+    return f"{code}{text}{RESET}" if supports_colour() else text
+
+
+# ── Output ──────────────────────────────────────────────────────────────────
+def info(msg: str) -> None:
+    print(f"  {msg}")
+
+
+def ok(msg: str) -> None:
+    print(c("✓", GREEN), msg)
+
+
+def warn(msg: str) -> None:
+    print(c("!", YELLOW), msg)
+
+
+def fail(msg: str) -> None:
+    print(c("✗", RED), msg, file=sys.stderr)
+    sys.exit(1)
+
+
+def title(msg: str) -> None:
+    print()
+    print(c(msg, BOLD))
+
+
+# ── KConfig: conservative reading and writing ──────────────────────────────
+#
+# Plasma writes this file and rewrites it on its own exit. Reformatting
+# it from scratch with configparser would lose the comments, the key
+# order, and the ';' separators KConfig uses for lists. So the text is
+# edited the old-fashioned way: only the lines that need it are touched,
+# everything else stays byte-for-byte as it was.
+
+GEOM_RE = re.compile(r"ItemGeometries-(\d+)x(\d+)\s*=")
+CONTAINMENT_RE = re.compile(r"\[Containments\]\[(\d+)\]\s*$")
+WALLPAPER_GROUP_RE = re.compile(
+    r"\[Containments\]\[(\d+)\]\[Wallpaper\]\[" + re.escape(WALLPAPER_PLUGIN) + r"\]\[" + GROUP + r"\]\s*$"
+)
+
+
+def read_text() -> str:
+    if not APPLETSRC.exists():
+        fail(f"not found: {APPLETSRC}")
+    return APPLETSRC.read_text(encoding="utf-8", errors="replace")
+
+
+def backup() -> Path | None:
+    """A safety copy before every write. Writing this file badly can
+    make the desktop impossible to start."""
+    try:
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        dest = BACKUP_DIR / f"desktop-appletsrc.{time.strftime('%Y%m%d-%H%M%S')}.bak"
+        shutil.copy2(APPLETSRC, dest)
+        # Do not keep more than 20 copies.
+        old = sorted(BACKUP_DIR.glob("desktop-appletsrc.*.bak"))[:-20]
+        for f in old:
+            f.unlink(missing_ok=True)
+        return dest
+    except OSError:
+        return None
+
+
+def _find_sections(lines: list[str], rx: re.Pattern[str]) -> list[tuple[int, int, str]]:
+    """Indices (start, end, id) of the matching sections, with no overlaps."""
+    out: list[tuple[int, int, str]] = []
+    for i, line in enumerate(lines):
+        m = rx.match(line.rstrip("\n"))
+        if not m:
+            continue
+        end = len(lines)
+        for j in range(i + 1, len(lines)):
+            if lines[j].lstrip().startswith("["):
+                end = j
+                break
+        out.append((i, end, m.group(1)))
+    return out
+
+
+def set_keys(section_regex: re.Pattern[str], keys: dict[str, str],
+             only_in: set[str] | None) -> int:
+    """Sets keys inside the sections matching `section_regex`.
+
+    If `only_in` is given, only those containments are updated. Returns
+    the number of sections touched.
+
+    All in a single pass. An earlier version re-invoked itself when it
+    had to insert a key: the recursion re-read the file from disk, where
+    the edits had not been written yet, so it reinserted the same
+    key for ever. Infinite recursion. Here the edits are collected
+    first and then applied back to front, which keeps the line
+    indices of the rows after them valid, and the file is written
+    once.
+    """
+    text = read_text()
+    lines = text.splitlines(keepends=True)
+
+    sections = _find_sections(lines, section_regex)
+    targets = [s for s in sections if only_in is None or s[2] in only_in]
+    if not targets:
+        return 0
+
+    # Collect the changes: (line_index, text) to replace/insert.
+    replacements: dict[int, str] = {}
+    inserts: list[tuple[int, str]] = []   # (indice, testo)
+
+    for start, end, _cid in targets:
+        for key, value in keys.items():
+            line = f"{key}={value}\n"
+            found = None
+            for k in range(start + 1, end):
+                if lines[k].lstrip().startswith(f"{key}="):
+                    found = k
+                    break
+            if found is not None:
+                replacements[found] = line
+            else:
+                inserts.append((start + 1, line))
+
+    # Application.
+    #
+    # Replacements first, then insertions. Replacements do not change
+    # the number of lines, so they shift nothing and their indices stay
+    # valid. Insertions do change it: they have to be done from the tail
+    # to the head, and for the same index in reverse order, otherwise
+    # they invert each other.
+    #
+    # The order matters. The previous version did the opposite -- it
+    # inserted first -- and the replacements landed on the wrong line: a
+    # simple "move 900 60" produced two HudPosition keys and lost
+    # HudCustomY, without any error.
+    for idx, line in sorted(replacements.items(), key=lambda t: -t[0]):
+        lines[idx] = line
+
+    by_index: dict[int, list[str]] = {}
+    for idx, line in inserts:
+        by_index.setdefault(idx, []).append(line)
+    for idx in sorted(by_index, reverse=True):
+        for line in reversed(by_index[idx]):
+            lines.insert(idx, line)
+
+    tmp = APPLETSRC.with_suffix(".tmp")
+    tmp.write_text("".join(lines), encoding="utf-8")
+    os.replace(tmp, APPLETSRC)
+    return len(targets)
+
+
+def create_section(containment_id: str) -> None:
+    """Creates the wallpaper section for a containment, if it is not
+    there already.
+
+    The test uses re.MULTILINE: the pattern ends with `\\s*$`, and without
+    that flag `$` means "end of text", not "end of the line". With the
+    search on multi-line text the pattern never matched and this
+    function appended a duplicate section on every call. Then set_keys
+    found both and updated both: the config grew with every command.
+    """
+    text = read_text()
+    rx = re.compile(
+        r"\[Containments\]\[" + containment_id + r"\]\[Wallpaper\]\["
+        + re.escape(WALLPAPER_PLUGIN) + r"\]\[" + GROUP + r"\]\s*$",
+        re.MULTILINE,
+    )
+    if rx.search(text):
+        return
+
+    block = (
+        f"\n[Containments][{containment_id}][Wallpaper][{WALLPAPER_PLUGIN}][{GROUP}]\n"
+        + "".join(f"{k}={v}\n" for k, v in DEFAULTS.items())
+    )
+    tmp = APPLETSRC.with_suffix(".tmp")
+    tmp.write_text(text.rstrip("\n") + "\n" + block, encoding="utf-8")
+    os.replace(tmp, APPLETSRC)
+
+
+def get_keys(containment_id: str) -> dict[str, str]:
+    """The containment's keys, completed with the schema's defaults.
+
+    The real config often holds only the keys somebody has actually
+    changed: HudWidth and HudHeight, for instance, do not appear until
+    you set them. Showing '?' would be lying, because on screen those
+    values are already in use. What is returned here is always what the
+    user sees, not what is written on disk.
+    """
+    text = read_text()
+    rx = re.compile(
+        r"\[Containments\]\[" + containment_id + r"\]\[Wallpaper\]\["
+        + re.escape(WALLPAPER_PLUGIN) + r"\]\[" + GROUP + r"\]\s*\n(.*?)(?=\n\[|\Z)",
+        re.S,
+    )
+    out: dict[str, str] = dict(DEFAULTS)
+    m = rx.search(text)
+    if m:
+        for line in m.group(1).splitlines():
+            line = line.strip()
+            if "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                out[k.strip()] = v.strip()
+    return out
+
+
+# ── Monitor discovery ────────────────────────────────────────────────────────
+def enabled_screens() -> list[tuple[int, int]]:
+    """The active outputs as (width, height), in kscreen-doctor's order.
+
+    If kscreen-doctor does not answer, it falls back to the
+    resolutions read from the containments: that need not be the
+    physical order of the screens, but it is still enough to list
+    them and to get the resolution right. An imperfect mapping beats
+    a command that refuses to work.
+    """
+    try:
+        res = subprocess.run(
+            ["kscreen-doctor", "-o"],
+            capture_output=True, text=True, timeout=6,
+        )
+        # Strip the colour first. kscreen-doctor writes the label in bold
+        # yellow, so the line arrives as
+        #     \x1b[01;33mGeometry: \x1b[0m0,0 1920x1080
+        # and the plain regex never matched a single line: the function
+        # fell through to the fallback, which only looks at the screens
+        # running this project's wallpaper, so it always reported one
+        # monitor. That made `--screen 1` fail on a two-monitor desktop
+        # and made the per-screen wallpaper command impossible to use.
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", res.stdout)
+        screens: list[tuple[int, int]] = []
+        for line in plain.splitlines():
+            m = re.search(r"Geometry:\s*(-?\d+),(-?\d+)\s+(\d+)x(\d+)", line)
+            if m:
+                screens.append((int(m.group(3)), int(m.group(4))))
+        if screens:
+            return screens
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    fallback: list[tuple[int, int]] = []
+    for res in wallpaper_containments():
+        w, h = res.split("x")
+        fallback.append((int(w), int(h)))
+    return sorted(fallback)
+
+
+def wallpaper_containments() -> dict[str, str]:
+    """Maps each screen to its containment by resolution.
+
+    Returns {"1920x1080": "22", "1360x768": "23", ...}.
+    """
+    text = read_text()
+    found: dict[str, str] = {}
+
+    # Split into [Containments][N] blocks
+    for m in re.finditer(r"\[Containments\]\[(\d+)\]\n(.*?)(?=\n\[Containments\]\[\d+\]\n|\Z)", text, re.S):
+        cid, body = m.group(1), m.group(2)
+        if f"wallpaperplugin={WALLPAPER_PLUGIN}" not in body:
+            continue
+        for g in GEOM_RE.finditer(body):
+            found.setdefault(f"{g.group(1)}x{g.group(2)}", cid)
+    return found
+
+
+def resolve_targets(wanted: list[str] | None) -> list[str]:
+    """Containments to update, based on the requested screens (by index)."""
+    screens = enabled_screens()
+    mapping = wallpaper_containments()
+
+    if not mapping:
+        fail(
+            "no containment found with the wallpaper "
+            f"'{WALLPAPER_PLUGIN}'. The desktop does not use this wallpaper."
+        )
+
+    if not wanted:
+        return sorted(set(mapping.values()), key=int)
+
+    by_index = [f"{w}x{h}" for (w, h) in screens]
+    chosen: list[str] = []
+    for idx in wanted:
+        if idx < 0 or idx >= len(by_index):
+            fail(
+                f"screen {idx} does not exist. "
+                f"Collegati: {', '.join(f'{i} ({s})' for i, s in enumerate(by_index)) or 'nessuno'}."
+            )
+        res = by_index[idx]
+        if res not in mapping:
+            fail(f"no CyberDeck wallpaper found for screen {res}.")
+        chosen.append(mapping[res])
+    return chosen
+
+
+def write_all(keys: dict[str, str], targets: list[str]) -> None:
+    saved = backup()
+    if saved:
+        print(c(f"  backup: {saved}", DIM))
+
+    for cid in targets:
+        create_section(cid)
+        set_keys(WALLPAPER_GROUP_RE, keys, {cid})
+
+    ok(f"aggiornati {len(targets)} scherm{'o' if len(targets) == 1 else 'i'}")
+
+
+# ── Yielding ────────────────────────────────────────────────────────────────
+def read_screen_wallpapers() -> dict[str, str]:
+    """{containment id: wallpaper plugin id}, for the containments that
+    are actually a screen.
+
+    The key is `wallpaperplugin`, and it sits directly in
+    `[Containments][N]` -- not in `[Containments][N][General]`, which is
+    where it is natural to look and where it is not.
+    """
+    text = read_text()
+    out: dict[str, str] = {}
+    for m in re.finditer(r"^\[Containments\]\[(\d+)\]\s*$(.*?)(?=^\[|\Z)",
+                         text, re.M | re.S):
+        cid, body = m.group(1), m.group(2)
+        kind = re.search(r"^plugin=(.*)$", body, re.M)
+        if not kind or kind.group(1).strip() not in SCREEN_PLUGINS:
+            continue
+        wp = re.search(r"^wallpaperplugin=(.*)$", body, re.M)
+        out[cid] = wp.group(1).strip() if wp else ""
+    return out
+
+
+def animated_wallpapers() -> set[str]:
+    """Plugin ids the user has declared to be animated."""
+    if not ANIMATED_LIST.exists():
+        return set(ANIMATED_FALLBACK)
+    out: set[str] = set()
+    for line in ANIMATED_LIST.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            out.add(line)
+    return out
+
+
+def animated_elsewhere() -> tuple[bool, list[str]]:
+    """Is an animated wallpaper running on a screen that is not ours? And
+    which ones.
+
+    **This reports. It does not decide.** Nothing is written from what it
+    finds.
+
+    It used to decide, and the decision was "yield". That made the desktop
+    permanently static: the video wallpaper lives on the second monitor and
+    stays there, so the condition was true at every single pass, the
+    spectrum was never on, and there was no way to tell a stopped spectrum
+    from a broken one. The project's own rule is that a person outranks a
+    timer, and a timer that holds a setting forever is a timer with no
+    off switch.
+
+    So the performance mode is now a switch the user throws, for the times
+    the whole GPU is wanted — a game, a render — and the detector's job is
+    to say what is on the screens so the state can be shown honestly. The
+    measurement stays: it is what tells the card that something is
+    animating, and it is what the manual mode acts on when it is thrown.
+
+    Kept as a narrow condition on purpose. Ours on every screen means there
+    is nothing of the user's to describe.
+    """
+    screens = read_screen_wallpapers()
+    animated = animated_wallpapers()
+    ours = {cid for cid, wp in screens.items() if wp == WALLPAPER_PLUGIN}
+    others = sorted({wp for cid, wp in screens.items()
+                     if wp in animated and cid not in ours})
+    return bool(others and ours), others
+
+
+def hud_yield_is_manual() -> bool:
+    """Is the current state one the user chose by hand?"""
+    return YIELD_MANUAL.exists()
+
+
+def set_performance(state: bool, manual: bool, quiet: bool = False) -> bool:
+    """Apply the yield state. Returns whether anything changed.
+
+    The `quiet` and "changed" behaviour is not an optimisation, it is a
+    requirement: this runs from a timer every couple of seconds, and a
+    version that always wrote would take a backup of the appletsrc and
+    print to the journal thirty times a minute.
+
+    The manual override is checked *here* and not in the caller. It was
+    in the `--auto` branch of the command, which meant any other caller
+    -- a test, a future script -- could set the state through a
+    deliberate decision and quietly undo what the user had asked for.
+    The one thing that must never happen is a background process
+    overruling a person, and that belongs as close to the write as it
+    can get.
+    """
+    if not manual and YIELD_MANUAL.exists():
+        if not quiet:
+            info("a manual choice is in place, leaving it alone")
+        return False
+
+    changed = False
+    value = "true" if state else "false"
+    targets = sorted(read_screen_wallpapers(), key=int)
+    ours = [cid for cid in targets
+            if read_screen_wallpapers().get(cid) == WALLPAPER_PLUGIN]
+
+    for cid in ours:
+        if get_keys(cid).get("PerformanceMode", "false") != value:
+            changed = True
+            break
+
+    want_signal = state
+    if YIELD_FILE.exists() != want_signal:
+        changed = True
+
+    if manual:
+        if not YIELD_MANUAL.exists():
+            changed = True
+    elif YIELD_MANUAL.exists():
+        changed = True
+
+    if not changed:
+        if not quiet:
+            info("nothing to do")
+        return False
+
+    YIELD_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if manual:
+        YIELD_MANUAL.touch()
+    if want_signal:
+        YIELD_FILE.touch()
+    else:
+        # Unconditional. A manual "off" is exactly the case where the
+        # signal file has to go: the first version guarded this with
+        # `elif not manual`, which meant turning the mode off by hand
+        # left the file in place and the wallpaper kept yielding. The
+        # test for the manual override caught it.
+        YIELD_FILE.unlink(missing_ok=True)
+
+    if ours:
+        set_keys(WALLPAPER_GROUP_RE, {"PerformanceMode": value}, set(ours))
+
+    if not quiet:
+        ok("yielding" if state else "full")
+    return True
+
+
+def cmd_performance(args) -> None:
+    if getattr(args, "auto", False):
+        # --auto means "hands off, run at full tilt", and it means that
+        # unconditionally. It used to mean "let the detector decide", and
+        # the detector decided to yield, so --auto put the spectrum back
+        # out of sight. Running this every two seconds from the timer meant
+        # the desktop was static and stayed static.
+        #
+        # The manual marker is still respected, because this is also the
+        # path that clears it: someone who set YIELD by hand gets that
+        # choice back here and only here.
+        if hud_yield_is_manual():
+            if not args.quiet:
+                info("a manual choice is in place, leaving it alone")
+            return
+        if set_performance(False, manual=False, quiet=args.quiet):
+            if not args.quiet:
+                ok("full")
+        _trovato, motivi = animated_elsewhere()
+        if motivi and not args.quiet:
+            for r in motivi:
+                print(c(f"  animating on a screen that is not ours: {r}", DIM))
+        return
+
+    azione = args.args[0] if args.args else "status"
+
+    if azione == "status":
+        state = YIELD_FILE.exists()
+        how = "you (detector off)" if YIELD_MANUAL.exists() else "hands off"
+        # Ask the running session, not the file. A wallpaper swap goes
+        # through plasmashell and the appletsrc catches up in its own
+        # time, so the file reported the video as still swapped out for a
+        # second or two after it was already back on screen -- `status`
+        # contradicting the desktop in front of the user.
+        screens = plasma_wallpapers() or read_screen_wallpapers()
+        title("CyberDeck — performance mode")
+        for cid, wp in sorted(screens.items(), key=lambda t: int(t[0])):
+            mark = "  <- ours" if wp == WALLPAPER_PLUGIN else ""
+            print(f"  screen (containment {cid}): {wp or 'none'}{mark}")
+        animando, motivi = animated_elsewhere()
+        print(f"  animated wallpapers: {', '.join(animated_wallpapers()) or 'none listed'}")
+        print(f"  on another screen   : "
+              + (c(', '.join(motivi), YELLOW) if motivi
+                 else c('nothing', GREEN))
+              + (c("  (reported, not acted on: the detector does not "
+                    "change this)", DIM) if motivi else ""))
+        presi = gpu_free_screens()
+        print(f"  GPU free, screens   : "
+              + (c(", ".join(presi), YELLOW) if presi
+                 else c("none", GREEN))
+              + (c("  (animated wallpapers swapped out; back when the mode goes off)", DIM)
+                 if presi else ""))
+        print(f"  state               : "
+              f"{c('yielding', YELLOW) if state else c('full', GREEN)}"
+              f"  ({how})")
+        return
+
+    if azione in ("on", "enable", "1"):
+        # Quiet, because the two lines below already say what happened.
+        # Unquiet printed "nothing to do" and then "performance mode ON"
+        # one after the other, which is not a state a reader can hold.
+        set_performance(True, manual=True, quiet=True)
+        ok("performance mode ON: the GPU goes to the game, both screens")
+        set_gpu_free(True, quiet=args.quiet)
+        avvisa_se_non_preso()
+    elif azione in ("off", "disable", "0"):
+        set_performance(False, manual=True, quiet=True)
+        ok("performance mode OFF: the animated wallpapers come back")
+        set_gpu_free(False, quiet=args.quiet)
+        avvisa_se_non_preso()
+    elif azione in ("toggle",):
+        stato = not YIELD_FILE.exists()
+        set_performance(stato, manual=True, quiet=True)
+        set_gpu_free(stato, quiet=args.quiet)
+        ok("performance mode " + ("ON" if YIELD_FILE.exists() else "OFF"))
+        avvisa_se_non_preso()
+    elif azione in ("auto", "automatic", "detect"):
+        # The way back. Without it the manual override is a one-way door:
+        # the marker stops the automatic pass for good, and the only way
+        # out was to delete a file under ~/.cache by hand, which is not an
+        # interface.
+        #
+        # "Back" now means full tilt. The automatic pass no longer yields
+        # to anything, so there is nothing to hand the decision to; what is
+        # left to do is clear the marker, hand back whatever wallpaper was
+        # taken, and say what is animating.
+        if YIELD_MANUAL.exists():
+            YIELD_MANUAL.unlink(missing_ok=True)
+            ok("back to full tilt")
+        else:
+            info("already hands-off")
+        # Give back any wallpaper the manual mode took. Leaving a screen on
+        # ours after the user has asked for the GPU back would be the
+        # opposite of what they asked for.
+        if gpu_free_screens():
+            set_gpu_free(False, quiet=args.quiet)
+        set_performance(False, manual=False, quiet=args.quiet)
+        _animando, motivi = animated_elsewhere()
+        for r in motivi:
+            print(c(f"  animating on a screen that is not ours: {r}", DIM))
+        avvisa_se_non_preso()
+    else:
+        fail(f"unknown '{azione}'. Use: on, off, toggle, auto, status, --auto")
+
+
+def reload_wallpaper() -> bool:
+    """Ask plasmashell to re-read the wallpaper configuration.
+
+    It does not work, and pretending otherwise is worse than the bug.
+    Measured: the script runs without error and reports both desktops
+    ("done 2"), and the wallpaper HUD does not change -- `reloadConfig`
+    on a containment does not re-read the wallpaper plugin's config, so
+    the value written by `toggle` only reaches the screen when
+    plasmashell restarts.
+
+    The old version swallowed the failure, so `cyberhud toggle` looked
+    like it had worked and the wallpaper kept showing an HUD that the
+    config said was off. That is how one HUD became two on both
+    screens. So: try, and if it did not work, say so instead of
+    returning quietly.
+    """
+    script = ("for (var i = 0; i < desktops().length; i++) { "
+              "desktops()[i].reloadConfig(); }")
+    try:
+        r = subprocess.run(
+            ["qdbus6", "org.kde.plasmashell", "/PlasmaShell",
+             "org.kde.PlasmaShell.evaluateScript", script],
+            capture_output=True, timeout=6, text=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    # D-Bus reports a script that threw as a Failed error, not a
+    # non-zero exit, so the output has to be looked at.
+    return "Error" not in (r.stdout or "") and "Error" not in (r.stderr or "")
+
+
+def avvisa_se_non_preso() -> None:
+    """Says plainly that the wallpaper has not been told yet.
+
+    The return value of reload_wallpaper() cannot be trusted for this:
+    the script runs clean and reports both desktops, and the wallpaper
+    still does not react. So the warning is not conditional on it. It
+    is printed once, after the command that needs it, because a
+    wallpaper that has not reloaded is the difference between one HUD
+    and two.
+
+    Which way it is going has to be named. "The spectrum stops" was wrong
+    the moment this function was called for FULL: the spectrum was
+    starting, the file said so, and the sentence said the opposite. A
+    reader who believed the word rather than the state would have known
+    less than the command had just told them.
+    """
+    #
+    # This used to announce that the spectrum stops or starts again on the
+    # next restart. Both halves were wrong and had been for a while.
+    #
+    # The spectrum is a section of the telemetry panel, and it always runs:
+    # the analyser measures about 2.4% of a core, and the animated
+    # wallpaper it was supposedly standing aside for measures 3-19% of the
+    # GPU. Yielding does not stop it, so there is nothing to announce.
+    #
+    # And there is no waiting on a restart either. The panel watches the file
+    # itself, once a second, and the wallpaper swap is immediate -- the
+    # video's descriptors go from 2 to 0 on the command, not on a restart.
+    #
+    # What is left to say is the one thing that is genuinely true and was
+    # never mentioned: the panel does not move. Which HUD owns which screen
+    # is written by Plasma into the appletsrc, and the panel keeps its place.
+    direzione = "on" if YIELD_FILE.exists() else "off"
+    print(c(f"  the panel reads this within a second; the spectrum keeps running "
+            f"either way (2.4% of a core against the wallpaper's 3-19% of the GPU)",
+            DIM))
+    print(c(f"  performance mode is {direzione}", DIM))
+
+
+# ── Giving the whole GPU back ────────────────────────────────────────────────
+#
+# Two different jobs, deliberately not the same job.
+#
+# The automatic detector defers. An animated wallpaper on a screen that is
+# not ours earns the GPU, and the only thing we do about it is stop asking
+# for it. It never touches the other wallpaper: the user put that there, and
+# a timer that rearranges someone's desktop every two seconds is a bug
+# waiting for a bad day.
+#
+# The manual performance mode is the opposite, because the user pressed the
+# button. It means "I need the whole GPU now" -- a game, a render -- and an
+# animated wallpaper is the single largest thing competing for it. So it
+# swaps that wallpaper for ours, which draws nothing while the mode is on,
+# and remembers which plugin was there so turning it off puts it back.
+
+
+def _plasma_eval(script: str, timeout: float = 8.0) -> tuple[bool, str]:
+    """Run a script in plasmashell. Returns (no error, output).
+
+    `evaluateScript` returns its result through printed output, not through
+    the D-Bus reply: an expression like `1+1` comes back empty and
+    `print(1+1)` comes back `2`. That is how this Plasma version behaves and
+    is worth knowing before writing anything else against it.
+    """
+    try:
+        r = subprocess.run(
+            ["qdbus6", "org.kde.plasmashell", "/PlasmaShell",
+             "org.kde.PlasmaShell.evaluateScript", script],
+            capture_output=True, timeout=timeout, text=True,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, str(e)
+    out = (r.stdout or "") + (r.stderr or "")
+    if "Error" in out or r.returncode != 0:
+        return False, out.strip()
+    return True, out.strip()
+
+
+def plasma_wallpapers() -> dict[str, str]:
+    """{containment id: wallpaper plugin id}, read from plasmashell itself.
+
+    The appletsrc is the file that gets written and is only correct once
+    plasmashell has been told; this asks the running session, so it is what
+    is actually on the screens.
+    """
+    script = ('for (var i=0;i<desktops().length;i++){ '
+              'print(desktops()[i].id + "=" + desktops()[i].wallpaperPlugin + ";"); }')
+    ok, out = _plasma_eval(script)
+    if not ok:
+        return {}
+    # Split on the trailing `;`, not on lines. Several `print` calls in one
+    # script come back concatenated with no newline between them, so the
+    # first version produced a single key holding both screens' text glued
+    # together: {'22': 'cyberdeck.instrument.field23\tluisbocanegra...'}.
+    # Nothing then matched the animated plugin, so the performance mode
+    # reported success and swapped nothing.
+    found: dict[str, str] = {}
+    for record in out.split(";"):
+        record = record.strip()
+        if "=" in record:
+            cid, _, plugin = record.partition("=")
+            found[cid.strip()] = plugin.strip()
+    return found
+
+
+def _set_plasma_wallpaper(cid: str, plugin: str) -> bool:
+    """Point one desktop at one wallpaper plugin, in the running session."""
+    escaped = plugin.replace("\\", "\\\\").replace('"', '\\"')
+    ok, out = _plasma_eval(
+        f'for (var i=0;i<desktops().length;i++){{ '
+        f'if (desktops()[i].id == "{cid}"){{ '
+        f'print(desktops()[i].wallpaperPlugin = "{escaped}"); }} }}'
+    )
+    return ok and "Error" not in out
+
+
+def _read_saved() -> dict[str, str]:
+    if not GPU_FREE_SAVED.exists():
+        return {}
+    try:
+        data = json.loads(GPU_FREE_SAVED.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return ({str(k): str(v) for k, v in data.items()}
+            if isinstance(data, dict) else {})
+
+
+def _write_saved(data: dict[str, str]) -> None:
+    GPU_FREE_SAVED.parent.mkdir(parents=True, exist_ok=True)
+    if data:
+        GPU_FREE_SAVED.write_text(
+            json.dumps(data, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8")
+    else:
+        GPU_FREE_SAVED.unlink(missing_ok=True)
+
+
+def set_gpu_free(state: bool, quiet: bool = False) -> bool:
+    """Take the animated wallpapers back, or give them back.
+
+    Returns whether a screen was actually changed. Only the manual path
+    calls this; the detector never does.
+    """
+    animated = animated_wallpapers()
+    screens = plasma_wallpapers()
+    if not screens:
+        # The session will not answer. Decide from the file, which is
+        # slower to reach the screen but beats deciding that nothing
+        # animates and leaving a video decoding through a "GPU free" mode.
+        screens = read_screen_wallpapers()
+    saved = _read_saved()
+    changed = False
+
+    if state:
+        for cid, plugin in sorted(screens.items(), key=lambda kv: int(kv[0])):
+            if plugin in animated and cid not in saved:
+                saved[cid] = plugin
+        _write_saved(saved)
+        for cid, plugin in sorted(screens.items(), key=lambda kv: int(kv[0])):
+            if plugin in animated and _set_plasma_wallpaper(cid, WALLPAPER_PLUGIN):
+                changed = True
+                if not quiet:
+                    ok(f"screen {cid}: {plugin} -> {WALLPAPER_PLUGIN} "
+                       f"(it comes back when the mode goes off)")
+        if not changed and saved and not quiet:
+            warn("saved what to restore, but the session would not switch it")
+    else:
+        if saved:
+            for cid, plugin in sorted(saved.items(), key=lambda kv: int(kv[0])):
+                if _set_plasma_wallpaper(cid, plugin):
+                    changed = True
+                    if not quiet:
+                        ok(f"screen {cid}: back to {plugin}")
+            _write_saved({})
+        elif not quiet:
+            info("nothing to restore")
+    return changed
+
+
+def gpu_free_screens() -> list[str]:
+    """Containments the manual mode has taken over, for the status line."""
+    return sorted(_read_saved(), key=int)
+
+
+def desktop_containment_for(screen_index: int) -> tuple[str, str] | None:
+    """(containment id, resolution) for a screen index, or None.
+
+    Independent of which wallpaper the screen runs. `resolve_targets()`
+    cannot be used here: it goes through `wallpaper_containments()`, which
+    only knows about screens showing this project's wallpaper — so it
+    reports "no containment" on a screen showing a video, which is exactly
+    the screen a widget has to be moved on.
+    """
+    per_risoluzione = all_screen_containments()
+    ordinate = [f"{w}x{h}" for (w, h) in enabled_screens()]
+    if screen_index < 0 or screen_index >= len(ordinate):
+        return None
+    res = ordinate[screen_index]
+    cid = per_risoluzione.get(res)
+    return (cid, res) if cid else None
+
+
+def applet_for_plugin(cid: str, plugin: str) -> str | None:
+    """The applet id of `plugin` inside one containment, or None.
+
+    The applet headers are `[Containments][22][Applets][812]` — all on one
+    line, not a nested `[Applets][812]` section. An earlier version matched
+    a line beginning with `[Applets]`, which this file never contains, so
+    it reported every widget as absent on a screen where both of them were
+    plainly listed.
+    """
+    testo = read_text()
+    for m in re.finditer(rf"^\[Containments\]\[{cid}\]\[Applets\]\[(\d+)\]\s*$"
+                         rf"(.*?)(?=^\[|\Z)", testo, re.M | re.S):
+        plug = re.search(r"^plugin=(.*)$", m.group(2), re.M)
+        if plug and plug.group(1).strip() == plugin:
+            return m.group(1)
+    return None
+
+
+def set_widget_geometry(cid: str, resolution: str, applet: str,
+                        x: int, y: int, w: int | None = None,
+                        h: int | None = None) -> bool:
+    """Write one applet's position into ItemGeometries, in place.
+
+    In place because that key holds every applet on the screen in one
+    line, separated by semicolons. The first version rebuilt the line from
+    the applet it cared about and dropped the others — which silently
+    moved the telemetry and deleted the spectrum's position in the same
+    keystroke. A widget is also placed by dragging it, and both write
+    this same line, so the line has to survive being rewritten.
+    """
+    backup()
+    text = read_text()
+    chiave = f"ItemGeometries-{resolution}"
+    m = re.search(rf"^{chiave}=(.*)$", text, re.M)
+    if not m:
+        return False
+    parti = [p for p in m.group(1).split(";") if p.strip()]
+    trovato = False
+    for i, p in enumerate(parti):
+        if not p.startswith(f"Applet-{applet}:"):
+            continue
+        campi = p.split(":")[1].split(",")
+        campi[0] = str(x)
+        campi[1] = str(y)
+        if w is not None and len(campi) > 2:
+            campi[2] = str(w)
+        if h is not None and len(campi) > 3:
+            campi[3] = str(h)
+        parti[i] = f"Applet-{applet}:" + ",".join(campi)
+        trovato = True
+        break
+    if not trovato:
+        return False
+    nuovo = f"{chiave}=" + ";".join(parti) + ";"
+    text = text[:m.start()] + nuovo + text[m.end():]
+    # The horizontal twin is the same list, and Plasma reads it on some
+    # layouts; leaving it stale is how two copies of a position appear.
+    text = re.sub(r"^ItemGeometriesHorizontal=.*$",
+                  f"ItemGeometriesHorizontal=" + ";".join(parti) + ";",
+                  text, flags=re.M)
+    APPLETSRC.write_text(text, encoding="utf-8")
+    return True
+
+
+def wallpaper_plugins_installed() -> set[str]:
+    """Every wallpaper plugin id present on disk, user and system.
+
+    Read from the two directories Plasma looks in rather than asked for over
+    D-Bus: a plugin is a directory with a metadata file, and that is a fact
+    about the disk that does not need a running session to establish.
+    """
+    found: set[str] = set()
+    for base in (Path.home() / ".local" / "share" / "plasma" / "wallpapers",
+                 Path("/usr/share/plasma/wallpapers")):
+        if not base.is_dir():
+            continue
+        for child in base.iterdir():
+            if child.is_dir() and (child / "metadata.json").exists():
+                found.add(child.name)
+    return found
+
+
+def all_screen_containments() -> dict[str, str]:
+    """{resolution: containment id} for every screen, not just ours.
+
+    `wallpaper_containments()` only finds the screens running *this*
+    project's wallpaper, which is right for moving the HUD and useless for
+    the question "what is on my second monitor". So this looks at every
+    containment that is a desktop.
+    """
+    text = read_text()
+    found: dict[str, str] = {}
+    for m in re.finditer(r"\[Containments\]\[(\d+)\]\s*$(.*?)(?=^\[|\Z)",
+                          text, re.M | re.S):
+        cid, body = m.group(1), m.group(2)
+        kind = re.search(r"^plugin=(.*)$", body, re.M)
+        if not kind or kind.group(1).strip() not in SCREEN_PLUGINS:
+            continue
+        for g in GEOM_RE.finditer(body):
+            found.setdefault(f"{g.group(1)}x{g.group(2)}", cid)
+    return found
+
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+def cmd_wallpaper(args) -> None:
+    """Show or change what each screen shows.
+
+    Exists because the alternative is editing
+    plasma-org.kde.plasma.desktop-appletsrc by hand, where the
+    `wallpaperplugin=` key sits directly in `[Containments][N]` and not in
+    the `[General]` below it where everything else is. That is a
+    one-character mistake away from looking like it worked.
+    """
+    azione = getattr(args, "wallpaper_action", "list")
+    correnti = plasma_wallpapers() or read_screen_wallpapers()
+
+    if azione == "list":
+        per_risoluzione = all_screen_containments()
+        inverso = {cid: res for res, cid in per_risoluzione.items()}
+        title("CyberDeck — wallpaper per screen")
+        if not correnti:
+            warn("could not read the screens; is plasmashell running?")
+            return
+        for cid, wp in sorted(correnti.items(), key=lambda kv: int(kv[0])):
+            res = inverso.get(cid, "?")
+            marks = []
+            if wp == WALLPAPER_PLUGIN:
+                marks.append("ours")
+            if wp in animated_wallpapers():
+                marks.append("animates")
+            if cid in gpu_free_screens():
+                marks.append("held back")
+            print(f"  containment {cid:>3}  {res:>9}  {wp or 'none':<48}"
+                  + (f"  [{', '.join(marks)}]" if marks else ""))
+        return
+
+    if len(args.args or []) < 2:
+        fail("usage: cyberhud wallpaper set SCREEN PLUGIN")
+        return
+    schermo, plugin = args.args[0], args.args[1]
+
+    # Accept the containment id or the screen number, because the status
+    # lines show one and people count the other.
+    if schermo.isdigit() and schermo not in correnti:
+        indice = int(schermo)
+        per_risoluzione = all_screen_containments()
+        # enabled_screens() is the order Plasma numbers the monitors in.
+        ordinate = [f"{w}x{h}" for (w, h) in enabled_screens()]
+        if indice >= len(ordinate):
+            fail(f"there is no screen {indice}; you have {len(ordinate)}")
+            return
+        trovato = per_risoluzione.get(ordinate[indice])
+        if not trovato:
+            fail(f"screen {indice} ({ordinate[indice]}) has no desktop "
+                 f"containment; this looks wrong")
+            return
+        schermo = trovato
+        info(f"screen {indice} ({ordinate[indice]}) is containment {schermo}")
+
+    if schermo not in correnti:
+        fail(f"no screen with containment {schermo}; "
+             f"known: {', '.join(sorted(correnti, key=int))}")
+        return
+
+    # Check the id before writing it. plasmashell accepts the assignment
+    # for a plugin that is not installed and puts up a blank screen, and
+    # the first version of this printed a green tick for it -- the
+    # signature "it worked" on a command that broke the desktop. Which ids
+    # exist is a question about the disk, so it is answered from the disk.
+    disponibili = wallpaper_plugins_installed()
+    if plugin not in disponibili:
+        fail(f"no wallpaper plugin called '{plugin}' is installed")
+        print(c(f"  installed: {', '.join(sorted(disponibili))}", DIM))
+        return
+
+    if plugin == WALLPAPER_PLUGIN and animated_wallpapers() and \
+            any(w in animated_wallpapers() for w in correnti.values()):
+        print(c("  note: an animated wallpaper is running on another screen; "
+                "the detector reports it and changes nothing. YIELD would "
+                "swap that one out as well", DIM))
+    if _set_plasma_wallpaper(schermo, plugin):
+        ok(f"containment {schermo} -> {plugin}")
+    else:
+        fail("plasmashell did not accept the change")
+
+
+def cmd_place(args) -> None:
+    """Put a desktop widget where you want it.
+
+    Dragging a widget already works and is the quicker way, because Plasma
+    records the position itself. This exists for the two things dragging
+    cannot do: a position you can type, and a position that can be put in
+    a script.
+
+    It writes the same ItemGeometries key Plasma writes, in place, keeping
+    the other applets on that screen where they are.
+    """
+    # Only `hud`. There was a `spectrum` here, and it could not work: it
+    # resolved to the plugin id `cyberdeck.spectrum`, which was removed when
+    # the spectrum became a section of the telemetry panel instead of a
+    # widget of its own. Every invocation reached applet_for_plugin(),
+    # which returned None, and the command failed. It was advertised in its
+    # own error message the whole time.
+    cosa = getattr(args, "quale", "hud")
+    plugin = {"hud": "cyberdeck.hud"}.get(cosa)
+    if not plugin:
+        fail(f"unknown widget '{cosa}'. Use: hud")
+        return
+
+    indice = getattr(args, "screen", None)
+    if indice is not None:
+        trovato = desktop_containment_for(indice)
+        if not trovato:
+            fail(f"no screen {indice}")
+            return
+        cid, res = trovato
+    else:
+        # No screen named: take the first one that actually holds the
+        # widget, which is more useful than the first screen in the system
+        # when the two differ.
+        for i in range(len(enabled_screens())):
+            t = desktop_containment_for(i)
+            if t and applet_for_plugin(t[0], plugin):
+                cid, res = t
+                break
+        else:
+            fail(f"no {plugin} widget on any screen")
+            return
+        print(c(f"  (nessuno schermo indicato: uso {res}, contenment {cid})", DIM))
+
+    applet = applet_for_plugin(cid, plugin)
+    if not applet:
+        fail(f"no {plugin} widget on screen {res} (containment {cid})")
+        return
+
+    x, y = args.xy
+    larghezza, altezza = args.dimensioni if args.dimensioni else (None, None)
+    if set_widget_geometry(cid, res, applet, x, y, larghezza, altezza):
+        ok(f"{cosa} -> x={x} y={y}"
+           + (f" {larghezza}x{altezza}" if larghezza else "")
+           + f"  (schermo {res}, applet {applet})")
+        info("a plasmashell restart perche' legga la nuova posizione")
+    else:
+        fail("could not write the position")
+
+
+def cmd_screens(args) -> None:
+    screens = enabled_screens()
+    mapping = wallpaper_containments()
+
+    title("Monitor")
+    if not screens:
+        warn("kscreen-doctor did not answer.")
+        return
+
+    by_index = [f"{w}x{h}" for (w, h) in screens]
+    for i, res in enumerate(by_index):
+        cid = mapping.get(res, "—")
+        mark = c("✓", GREEN) if res in mapping else c("×", YELLOW)
+        note = "" if res in mapping else c("  (does not use the CyberDeck wallpaper)", DIM)
+        print(f"  {mark} screen {i}: {res:>10}   containment {cid}{note}")
+
+    if len(set(by_index)) != len(by_index):
+        warn("Two monitors have the same resolution: the resolution is not enough to tell them apart.")
+        warn("The position might land on the wrong screen.")
+
+
+def cmd_move(args) -> None:
+    raw = list(args.args)
+
+    if len(raw) == 2 and all(str(v).lstrip("-").isdigit() for v in raw):
+        keys = {"HudPosition": "custom",
+                "HudCustomX": raw[0],
+                "HudCustomY": raw[1]}
+        label = f"personalizzata ({raw[0]}, {raw[1]})"
+    elif len(raw) == 1 and raw[0] in POSITIONS:
+        keys = {"HudPosition": raw[0]}
+        label = raw[0]
+    elif not raw:
+        keys = {"HudPosition": "top-right"}
+        label = "top-right (predefinito)"
+    else:
+        fail(
+            f"cannot interpret {' '.join(raw)}.\n"
+            f"  un preset: {', '.join(POSITIONS)}\n"
+            f"  or two numbers: cyberhud move 1200 40"
+        )
+
+    write_all(keys, resolve_targets(args.screen))
+    reload_wallpaper()
+    ok(f"position set: {label}")
+    avvisa_se_non_preso()
+
+
+def cmd_size(args) -> None:
+    w, h = args.size
+    keys: dict[str, str] = {}
+    lo, hi = LIMITS["HudWidth"]
+    keys["HudWidth"] = str(max(lo, min(hi, w)))
+    if keys["HudWidth"] != str(w):
+        warn(f"width {w} out of range, using {keys['HudWidth']}")
+
+    if h is not None:
+        lo, hi = LIMITS["HudHeight"]
+        keys["HudHeight"] = str(max(lo, min(hi, h)))
+        if keys["HudHeight"] != str(h):
+            warn(f"height {h} out of range, using {keys['HudHeight']}")
+
+    write_all(keys, resolve_targets(args.screen))
+    reload_wallpaper()
+    desc = f"{keys['HudWidth']}x{keys.get('HudHeight', 'auto')} px"
+    ok(f"size set: {desc}")
+    avvisa_se_non_preso()
+
+
+def cmd_toggle(args) -> None:
+    targets = resolve_targets(args.screen)
+    show = None
+    for cid in targets:
+        cur = get_keys(cid).get("ShowHud", "true")
+        if show is None:
+            show = cur != "true"
+    write_all({"ShowHud": "true" if show else "false"}, targets)
+    reload_wallpaper()
+    ok("HUD enabled" if show else "HUD disabled")
+    avvisa_se_non_preso()
+
+
+def cmd_reset(args) -> None:
+    write_all(dict(DEFAULTS), resolve_targets(args.screen))
+    reload_wallpaper()
+    ok("configuration restored")
+    avvisa_se_non_preso()
+
+
+def cmd_status(args) -> None:
+    targets = resolve_targets(None)
+    screens = enabled_screens()
+    by_index = [f"{w}x{h}" for (w, h) in screens]
+    reverse = {v: k for k, v in wallpaper_containments().items()}
+
+    title("CyberDeck — panel state")
+    for cid in targets:
+        res = reverse.get(cid, "?")
+        idx = by_index.index(res) if res in by_index else None
+        head = f"screen {idx} ({res})" if idx is not None else f"containment {cid}"
+        print(f"  {c(head, BOLD)}")
+
+        cfg = get_keys(cid)
+        if not cfg:
+            print(c("    no configuration section", DIM))
+            continue
+
+        show = cfg.get("ShowHud", "?")
+        flag = c("shown", GREEN) if show == "true" else c("hidden", YELLOW)
+        print(f"    visible    {flag}")
+        print(f"    position   {cfg.get('HudPosition', '?')}"
+              + (f"  ({cfg.get('HudCustomX')}, {cfg.get('HudCustomY')})"
+                 if cfg.get("HudPosition") == "custom" else ""))
+        print(f"    size       {cfg.get('HudWidth', '?')} x {cfg.get('HudHeight', '?')} px")
+        print(f"    spectrum   {cfg.get('SpectrumBottomInset', '?')} px from the panel")
+
+    print()
+    cache = Path.home() / ".cache"
+    stale = [f for f in ("cyberhud_perf_mode", "cyberhud_perf_manual") if (cache / f).exists()]
+    if stale:
+        print(c("  Note", DIM) + ": files from the removed Performance Mode are "
+              f"still there ({', '.join(stale)}). You can delete them safely.")
+
+
+# ── Parser ──────────────────────────────────────────────────────────────────
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="cyberhud",
+        description="CyberDeck telemetry panel manager.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = p.add_subparsers(dest="command")
+
+    def add_screen_arg(sp):
+        # An option, not a positional: with several positionals
+        # argparse would not know which argument to assign, and
+        # 'move 0 top-left' would become ambiguous.
+        sp.add_argument("-s", "--screen", action="append", type=int, default=None,
+                        metavar="N",
+                        help="monitor index (0 = first). Repeatable. "
+                             "Di default: tutti.")
+
+    sp = sub.add_parser("status", help="show the current state")
+    sp.set_defaults(func=cmd_status)
+
+    sp = sub.add_parser("screens", help="list the monitors and their containment")
+    sp.set_defaults(func=cmd_screens)
+
+    sp = sub.add_parser(
+        "place", help="position a desktop widget by hand",
+        description="Dragging a widget works too and is quicker. This is "
+                    "for typing a position, and for scripting one.")
+    sp.add_argument("quale", nargs="?", default="hud", metavar="WIDGET",
+                    help="hud (default)")
+    sp.add_argument("-s", "--screen", type=int, default=None, metavar="N",
+                    help="monitor index (0 = first). Default: the first screen")
+    sp.add_argument("xy", nargs=2, type=int, metavar="X Y",
+                    help="position in pixels from the top left")
+    sp.add_argument("dimensioni", nargs="*", type=int, metavar="W H",
+                    help="optional new size")
+    sp.set_defaults(func=cmd_place)
+
+    sp = sub.add_parser(
+        "wallpaper",
+        help="put a different wallpaper on each screen",
+        description="Show or change which wallpaper each screen shows. "
+                    "The two forms are separate: `list` prints what is on "
+                    "each screen, `set SCREEN PLUGIN` puts one there.")
+    wsp = sp.add_subparsers(dest="wallpaper_action", required=True)
+    wsp.add_parser("list", help="print the wallpaper on each screen")
+    setp = wsp.add_parser("set", help="put one wallpaper on one screen")
+    setp.add_argument("args", nargs="*", metavar="SCHERMO PLUGIN",
+                      help="the containment id or screen number, and the "
+                           "wallpaper plugin id")
+    sp.set_defaults(func=cmd_wallpaper)
+
+    sp = sub.add_parser("move", help="move the HUD")
+    # Two alternative forms: a preset ("top-right") or two integers
+    # ("1200 40"). argparse cannot tell them apart with several
+    # optional positionals, so all the arguments are accepted and
+    # interpreted here.
+    sp.add_argument("args", nargs="*", metavar="POSIZIONE|X Y",
+                    help=f"one of: {', '.join(POSITIONS)} — or X and Y in pixels")
+    add_screen_arg(sp)
+    sp.set_defaults(func=cmd_move)
+
+    sp = sub.add_parser("size", help="resize the HUD")
+    sp.add_argument("size", nargs="+", type=int, metavar=("W", "H"),
+                    help="width and height in pixels")
+    add_screen_arg(sp)
+    sp.set_defaults(func=cmd_size)
+
+    sp = sub.add_parser("toggle", help="show or hide the HUD")
+    add_screen_arg(sp)
+    sp.set_defaults(func=cmd_toggle)
+
+    sp = sub.add_parser("reset", help="restore the initial configuration")
+    add_screen_arg(sp)
+    sp.set_defaults(func=cmd_reset)
+
+    sp = sub.add_parser(
+        "performance",
+        help="stop the audio spectrum and leave the GPU to another "
+             "animated wallpaper",
+    )
+    sp.add_argument("args", nargs="*", metavar="on|off|toggle|status",
+                    help="on, off, toggle, or status. Anything else "
+                         "prints the status.")
+    # --auto is an option and not a positional: argparse refuses a
+    # positional that begins with "--", and the first version of this
+    # timer died with `unrecognized arguments: --auto` every two
+    # seconds.
+    sp.add_argument("--auto", action="store_true",
+                    help="the detector pass, as the timer runs it")
+    sp.add_argument("-q", "--quiet", action="store_true",
+                    help="print nothing unless the state actually changes")
+    sp.set_defaults(func=cmd_performance)
+
+    return p
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        return
+
+    if args.command == "size":
+        if not (1 <= len(args.size) <= 2):
+            parser.error("size requires <WIDTH> [HEIGHT]")
+        if len(args.size) == 1:
+            args.size = (args.size[0], None)
+
+    try:
+        args.func(args)
+    except KeyboardInterrupt:
+        print()
+        sys.exit(130)
+    except subprocess.TimeoutExpired:
+        fail("un comando è scaduto")
+
+
+if __name__ == "__main__":
+    main()

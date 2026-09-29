@@ -1,0 +1,21 @@
+# Author: Daen
+#
+# Every two seconds. See cyberdeck-yield.service for why a poll rather
+# than a file watcher.
+#
+# OnBootSec is short and OnUnitActiveSec carries the steady state, so
+# the first pass happens shortly after login rather than two seconds
+# after the unit is enabled.
+
+[Unit]
+Description=Poll for an animated wallpaper and yield the GPU to it
+Documentation=file://%h/Projects/cyberdeck/docs/CONTRATTO-resa.md
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=2s
+AccuracySec=1s
+Unit=cyberdeck-yield.service
+
+[Install]
+WantedBy=timers.target

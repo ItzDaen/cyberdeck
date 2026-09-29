@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<!--
+  CyberDeck Remote Dashboard
+  Author: Daen
+  Platform: CachyOS Linux | KDE Plasma 6 (Wayland) | Tailscale
+-->
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0e0d0b">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>CyberDeck</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="stylesheet" href="static/app.css">
+</head>
+<body>
+  <div class="cyberdeck-app">
+    <!-- TOP HEADER -->
+    <header class="top-header">
+      <div class="brand-section">
+        <div class="brand-logo">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="2" width="20" height="20" rx="0"></rect><path d="M7 10h10M7 14h6"></path></svg>
+        </div>
+        <div class="brand-title">CYBER<span>DECK</span> <span class="badge">v2.0</span></div>
+      </div>
+
+      <div class="header-desktop-nav" id="header-desktop-nav">
+        <button class="header-nav-btn" data-tab="workstation" title="All the sections">ALL</button>
+        <button class="header-nav-btn active" data-tab="audio" title="Audio Mixer & Stream Deck">AUDIO</button>
+        <button class="header-nav-btn" data-tab="telemetry" title="Hardware Telemetry">TELEMETRY</button>
+        <button class="header-nav-btn" data-tab="commands" title="Workstation Controls">COMMANDS</button>
+      </div>
+
+      <div class="header-status">
+        <div class="connection-pill">
+          <div id="connection-dot" class="connection-dot"></div>
+          <span id="connection-label">[LINK::CONNECTING]</span>
+        </div>
+        <!-- The performance mode, reachable without finding it.
+             The card down in TELEMETRY has the whole story, and on a phone
+             that is two taps and a scroll away, which is the same as
+             not having it: the reason this deck is on a phone is to reach
+             a switch in a second, and a switch you have to go looking for
+             is the switch you do not reach for.
+
+             Two buttons, not one that cycles. Cycling means a single
+             stray tap on a touchscreen can silently stop a video the user
+             was watching, and the label would have changed to say so only
+             after the fact. FULL and YIELD are one tap each and always say
+             where they are; AUTO is the way back out of a manual choice
+             and belongs next to it rather than two taps deep. -->
+        <button id="perf-quick-btn" class="header-mode-btn perf-quick" title="Free the GPU: stop the audio spectrum and swap animated wallpapers out">
+          <span id="perf-quick-label">[GPU FULL]</span>
+        </button>
+        <button id="perf-quick-auto-btn" class="header-mode-btn perf-quick-auto" title="Hand everything back and run at full tilt: the spectrum returns and any wallpaper taken for the GPU is put back">[AUTO]</button>
+        <button id="fullscreen-btn" class="header-mode-btn" title="Fullscreen">[⛶ FULL]</button>
+        <button id="panic-mute-btn" class="panic-mute-btn" title="Mute all the audio outputs">[MUTE ALL]</button>
+      </div>
+    </header>
+
+    <!-- MAIN VIEWPORT -->
+    <main class="viewport-content" id="viewport-content">
+
+      <!-- =======================================================
+           TAB 1: AUDIODECK (MIXER & ROUTING) - DEFAULT ACTIVE
+           ======================================================= -->
+      <section id="tab-audio" class="tab-view active" data-col-title="Audio e sessione">
+        <div class="audio-workspace">
+          <!-- Left Column: PipeWire Faders -->
+          <div class="deck-card audio-left-col">
+            <div class="card-headline">
+              <span>AUDIO CHANNELS</span>
+              <span class="badge">[PIPEWIRE SUBMIX]</span>
+            </div>
+            <div id="faders-container" style="display:flex; flex-direction:column; gap:8px;"></div>
+          </div>
+
+          <!-- Right Column: Mic Master, Stream Deck, Media Player -->
+          <div class="audio-right-col" style="display:flex; flex-direction:column; gap:12px;">
+            <!-- Master Broadcast Mic Button -->
+            <div class="deck-card">
+              <div class="card-headline">
+                <span>MASTER BROADCAST MIC</span>
+                <span style="color:var(--tactical-red);" class="badge">[KILL-SWITCH]</span>
+              </div>
+              <button id="master-mic-btn" class="master-mic-hero is-live" title="Toggle global mute on all microphones">
+                <div class="hero-icon-box">
+                  <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
+                </div>
+                <div class="hero-text-box">
+                  <span id="master-status-text" class="hero-title">[MICROPHONES LIVE]</span>
+                  <span id="master-sub-text" class="hero-subtitle">STATE: STREAMING ACTIVE</span>
+                </div>
+              </button>
+            </div>
+
+            <!-- Stream Deck Quick Action Keys -->
+            <div class="deck-card">
+              <div class="card-headline">
+                <span>STREAM DECK KEYS</span>
+                <span class="badge">[MACRO ROUTING]</span>
+              </div>
+              <div id="macro-grid" class="macro-tiles-grid"></div>
+            </div>
+
+            <!-- MPRIS Media Player -->
+            <div class="deck-card media-player-card">
+              <div class="card-headline">
+                <span>MPRIS MEDIA PLAYER</span>
+                <span class="badge">[AUDIO SYNC]</span>
+              </div>
+              <div id="media-container"></div>
+            </div>
+
+            <!-- Display & Session (KDE Plasma 6) -->
+            <div class="deck-card">
+              <div class="card-headline">
+                <span>KDE WAYLAND SESSION</span>
+                <span class="badge">[DISPLAY / KWIN]</span>
+              </div>
+              <div class="actions-tiles-grid">
+                <div id="btn-lock-session" class="action-tile">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="0"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                  <span>LOCK PC</span>
+                </div>
+                <div id="btn-display-dpms" class="action-tile">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="3" width="20" height="14" rx="0"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                  <span>SLEEP MON</span>
+                </div>
+                <div id="btn-prev-desktop" class="action-tile">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                  <span>DESK PREV.</span>
+                </div>
+                <div id="btn-next-desktop" class="action-tile">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                  <span>DESK NEXT.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Workstation Power Controls (With Safety Modals) -->
+            <div class="deck-card">
+              <div class="card-headline">
+                <span>SYSTEM POWER MATRIX</span>
+                <span style="color:var(--tactical-red);" class="badge">[SECURITY]</span>
+              </div>
+              <div class="actions-tiles-grid">
+                <div id="btn-suspend" class="action-tile">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                  <span>SUSPEND</span>
+                </div>
+                <div id="btn-reboot" class="action-tile danger">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                  <span>REBOOT PC</span>
+                </div>
+                <div id="btn-poweroff" class="action-tile danger">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+                  <span>POWER OFF PC</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =======================================================
+           TAB 2: CYBERMATRIX (HARDWARE TELEMETRY)
+           ======================================================= -->
+      <section id="tab-telemetry" class="tab-view" data-col-title="System telemetry">
+        <div class="telemetry-grid">
+          <!-- System Context Bar -->
+          <div class="telemetry-header-bar">
+            <span>SYS::OS: <b id="sys-os">CachyOS x86_64</b></span>
+            <span>UPTIME: <b id="sys-uptime">--:--:--</b></span>
+            <span>PROCS: <b id="sys-procs">0</b></span>
+            <span>LOAD: <b id="cpu-load">--</b></span>
+            <span>PROFILE: <b id="sys-profile" style="color:var(--matrix-green);">--</b></span>
+          </div>
+
+          <!-- 1. CPU Card (AMD Ryzen) -->
+          <div class="deck-card">
+            <div class="card-headline">
+              <span>CPU ARRAY</span>
+              <span class="badge" id="cpu-governor-badge">[AMD RYZEN 7 3800X]</span>
+            </div>
+            <div class="gauge-row">
+              <div>
+                <span id="cpu-percent" class="metric-big">0</span>
+                <span class="metric-unit">%</span>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:0.72rem; color:var(--text-dim); font-family:var(--font-mono);">FREQ / PKG TCTL</div>
+                <div style="font-family:var(--font-mono); font-weight:800; color:var(--text-main);">
+                  <span id="cpu-freq">0.00 GHz</span> | <span id="cpu-temp-tctl">--°C</span>
+                </div>
+              </div>
+            </div>
+            <div class="progress-bar-bg">
+              <div id="cpu-bar" class="progress-bar-fill" style="width:0%;"></div>
+            </div>
+            <div class="stat-pills-row">
+              <div class="stat-pill"><span class="label">Die Tccd1:</span><span id="cpu-temp-tccd1" class="val">--°C</span></div>
+              <div class="stat-pill"><span class="label">Governor:</span><span id="cpu-governor" class="val">powersave</span></div>
+            </div>
+            <div class="sensor-subgroup">
+              <div class="sensor-subgroup-title" style="display:flex; justify-content:space-between; align-items:center;">
+                <span>CORE LOAD MATRIX</span>
+                <span style="font-size:0.65rem; color:var(--text-secondary); text-transform:none;">8C / 16T SMT</span>
+              </div>
+              <div id="cpu-cores-list" class="cores-list-container">
+                <!-- Dynamically populated 16 core rows with bar, frequency, physical core and load -->
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. GPU Card (AMD Radeon RX 6600 XT) -->
+          <div class="deck-card">
+            <div class="card-headline">
+              <span>GPU ARRAY</span>
+              <span class="badge">[RADEON RX 6600 XT]</span>
+            </div>
+            <div class="gauge-row">
+              <div>
+                <span id="gpu-percent" class="metric-big">0</span>
+                <span class="metric-unit">%</span>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:0.72rem; color:var(--text-dim); font-family:var(--font-mono);">EDGE / HOT / VRAM</div>
+                <div style="font-family:var(--font-mono); font-weight:800; color:var(--text-main);">
+                  <span id="gpu-temp-edge">--°C</span> | 
+                  <span id="gpu-temp-hot">--°C</span> | 
+                  <span id="gpu-temp-mem">--°C</span>
+                </div>
+              </div>
+            </div>
+            <div style="margin-top:4px;">
+              <div style="display:flex; justify-content:space-between; font-size:0.72rem; font-family:var(--font-mono); color:var(--text-dim);">
+                <span>VRAM (8 GB GDDR6)</span>
+                <span id="vram-text">0 / 8176 MB (0%)</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div id="vram-bar" class="progress-bar-fill magenta" style="width:0%;"></div>
+              </div>
+            </div>
+            <div class="stat-pills-row">
+              <div class="stat-pill"><span class="label">Power:</span><span id="gpu-power" class="val">0 W</span></div>
+              <div class="stat-pill"><span class="label">Fan:</span><span id="gpu-fan" class="val">0 RPM</span></div>
+              <div class="stat-pill"><span class="label">Clocks:</span><span id="gpu-clocks" class="val">0 / 0 MHz</span></div>
+              <div class="stat-pill"><span class="label">VDDGFX:</span><span id="gpu-voltage" class="val">0 mV</span></div>
+            </div>
+          </div>
+
+          <!-- 3. RAM & Swap Card -->
+          <div class="deck-card">
+            <div class="card-headline">
+              <span>MEMORY CORE</span>
+              <span class="badge">[RAM & SWAP]</span>
+            </div>
+            <div class="gauge-row">
+              <div>
+                <span id="ram-percent" class="metric-big">0</span>
+                <span class="metric-unit">%</span>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:0.72rem; color:var(--text-dim); font-family:var(--font-mono);">RAM IN USE</div>
+                <div id="ram-text" style="font-family:var(--font-mono); font-weight:800; color:var(--cyber-cyan);">0 / 0 GB</div>
+              </div>
+            </div>
+            <div class="progress-bar-bg">
+              <div id="ram-bar" class="progress-bar-fill" style="width:0%;"></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:0.72rem; font-family:var(--font-mono); color:var(--text-dim); margin-top:4px;">
+              <span>FREE / CACHE:</span>
+              <span id="ram-subtext" style="color:var(--text-secondary);">-- GB</span>
+            </div>
+            <div style="margin-top:6px; font-size:0.72rem; font-family:var(--font-mono); color:var(--text-dim); display:flex; justify-content:space-between;">
+              <span>SWAP ALLOC:</span>
+              <span id="swap-text" style="color:var(--text-main);">0 / 0 GB</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div id="swap-bar" class="progress-bar-fill amber" style="width:0%;"></div>
+            </div>
+          </div>
+
+          <!-- PERFORMANCE MODE
+                 Freeing the GPU for a game or a render. The mode is the
+                 user's to throw, and nothing automatic throws it: the
+                 detector reports what is animating and stops there. It used
+                 to yield on its own, which with a video wallpaper on a
+                 second monitor meant the desktop was permanently static and
+                 there was no way to tell a stopped spectrum from a broken
+                 one. A background process that holds a setting forever has
+                 no off switch.
+
+                 Two facts the card still has to state rather than hide: a
+                 running Plasma wallpaper never re-reads its configuration,
+                 so the spectrum change lands on the next plasmashell
+                 restart (a wallpaper swap is immediate, that one is not);
+                 and FULL/YIELD here are the same choice as on the command
+                 line, not a preview. -->
+          <div class="deck-card">
+            <div class="card-headline">
+              <span>PERFORMANCE MODE</span>
+              <span class="badge">[AUDIO SPECTRUM]</span>
+            </div>
+            <div class="gauge-row">
+              <div>
+                <span id="perf-state" class="metric-big">FULL</span>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:0.72rem; color:var(--text-dim); font-family:var(--font-mono);">IN CHARGE</div>
+                <div id="perf-source" style="font-family:var(--font-mono); font-weight:800; color:var(--text-main);">hands off</div>
+              </div>
+            </div>
+            <div class="btn-group-row" style="margin-top:10px;">
+              <button class="profile-btn active" id="perf-btn-full">[FULL]</button>
+              <button class="profile-btn" id="perf-btn-yield">[YIELD]</button>
+              <button class="profile-btn" id="perf-btn-auto">[AUTO]</button>
+            </div>
+            <div style="margin-top:6px; font-size:0.68rem; font-family:var(--font-mono); color:var(--text-dim); line-height:1.5;">
+              Nothing automatic throws this switch. YIELD is the one for when the
+              whole GPU is wanted &mdash; a game, a render: it stops the spectrum
+              and swaps an animated wallpaper out for the static one. FULL puts both
+              back. AUTO clears the manual marker, hands the wallpaper back, and
+              goes to full tilt.
+            </div>
+            <div style="margin-top:8px; font-size:0.72rem; font-family:var(--font-mono); color:var(--text-secondary);">
+              <span>SCREENS:</span>
+              <span id="perf-screens" style="color:var(--text-main);">--</span>
+            </div>
+            <div id="perf-error" style="display:none; margin-top:8px; padding:8px 10px; font-size:0.7rem; font-family:var(--font-mono); color:#ffb4a2; background:rgba(255,80,60,0.10); border-left:2px solid #ff5040; line-height:1.45;"></div>
+            <div style="margin-top:4px; font-size:0.72rem; font-family:var(--font-mono); color:var(--text-dim);">
+              The spectrum takes effect after the next plasmashell restart. A wallpaper
+              swap is immediate.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =======================================================
+           TAB 3: SENSORS & SYSTEM SUITE (HARDWARE & CONTROLS)
+           ======================================================= -->
+      <section id="tab-commands" class="tab-view" data-col-title="Workstation commands">
+        <div class="command-grid">
+          <!-- 1. Motherboard Card (Nuvoton NCT6797) -->
+          <div class="deck-card">
+            <div class="card-headline">
+              <span>MOTHERBOARD SENSORS</span>
+              <span class="badge">[NUVOTON NCT6797]</span>
+            </div>
+            <div class="sensor-subgroup">
+              <div class="sensor-subgroup-title">CHIPSET & SOCKET THERMALS</div>
+              <div class="sensor-grid-row">
+                <div class="stat-pill"><span class="label">CPUTIN:</span><span id="mb-temp-socket" class="val">--°C</span></div>
+                <div class="stat-pill"><span class="label">SYSTIN:</span><span id="mb-temp-system" class="val">--°C</span></div>
+                <div class="stat-pill"><span class="label">MOSFET:</span><span id="mb-temp-vrm" class="val">--°C</span></div>
+                <div class="stat-pill"><span class="label">CHIPSET:</span><span id="mb-temp-chipset" class="val">--°C</span></div>
+                <div class="stat-pill"><span class="label">SMBus:</span><span id="mb-temp-smbus" class="val">--°C</span></div>
+                <div class="stat-pill"><span class="label">TSI0:</span><span id="mb-temp-tsi0" class="val">--°C</span></div>
+              </div>
+            </div>
+            <div class="sensor-subgroup" style="margin-top:10px;">
+              <div class="sensor-subgroup-title">POWER RAILS & VOLTAGES</div>
+              <div class="sensor-grid-row">
+                <div class="stat-pill"><span class="label">Vcore:</span><span id="mb-v-vcore" class="val">-- V</span></div>
+                <div class="stat-pill"><span class="label">Vsoc:</span><span id="mb-v-vsoc" class="val">-- V</span></div>
+                <div class="stat-pill"><span class="label">DRAM:</span><span id="mb-v-dram" class="val">-- V</span></div>
+                <div class="stat-pill"><span class="label">+12V:</span><span id="mb-v-12v" class="val">-- V</span></div>
+                <div class="stat-pill"><span class="label">+5V:</span><span id="mb-v-5v" class="val">-- V</span></div>
+                <div class="stat-pill"><span class="label">+3.3V:</span><span id="mb-v-3v3" class="val">-- V</span></div>
+                <div class="stat-pill"><span class="label">1.8V PLL:</span><span id="mb-v-pll" class="val">-- V</span></div>
+                <div class="stat-pill"><span class="label">CMOS:</span><span id="mb-v-cmos" class="val">-- V</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. Active Cooling & Fans -->
+          <div class="deck-card">
+            <div class="card-headline">
+              <span>COOLING & AIRFLOW</span>
+              <span class="badge">[PWM TACTICAL]</span>
+            </div>
+            <div class="stat-pills-row" style="margin-top:6px;">
+              <div class="stat-pill"><span class="label">CPU Cooler:</span><span id="fan-cpu" class="val">0 RPM</span></div>
+              <div class="stat-pill"><span class="label">Case Fan 1:</span><span id="fan-case1" class="val">0 RPM</span></div>
+              <div class="stat-pill"><span class="label">Case Fan 2:</span><span id="fan-case2" class="val">0 RPM</span></div>
+              <div class="stat-pill"><span class="label">GPU Cooler:</span><span id="fan-gpu" class="val">0 RPM</span></div>
+            </div>
+          </div>
+
+          <!-- 3. Storage NVMe SSDs & Filesystem -->
+          <div class="deck-card">
+            <div class="card-headline">
+              <span>STORAGE & I/O</span>
+              <span class="badge">[PCIe NVMe]</span>
+            </div>
+            <div class="sensor-subgroup">
+              <div class="sensor-subgroup-title">DRIVE THERMALS</div>
+              <div class="sensor-grid-row">
+                <div class="stat-pill"><span class="label">NVMe 1:</span><span id="nvme1-temp" class="val">--°C</span></div>
+                <div class="stat-pill"><span class="label">NVMe 1 Sens:</span><span id="nvme1-subtemps" class="val">--</span></div>
+                <div class="stat-pill"><span class="label">NVMe 2:</span><span id="nvme2-temp" class="val">--°C</span></div>
+              </div>
+            </div>
+            <div style="margin-top:8px;">
+              <div style="display:flex; justify-content:space-between; font-size:0.72rem; font-family:var(--font-mono); color:var(--text-dim);">
+                <span>ROOT FS (/)</span>
+                <span id="disk-root-text">0 / 0 GB</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div id="disk-bar" class="progress-bar-fill" style="width:0%;"></div>
+              </div>
+            </div>
+            <div class="stat-pills-row">
+              <div class="stat-pill"><span class="label">I/O Rate:</span><span id="disk-rates" class="val">R: 0 KB/s | W: 0 KB/s</span></div>
+            </div>
+          </div>
+
+          <!-- 4. Network & Wireless -->
+          <div class="deck-card">
+            <div class="card-headline">
+              <span>NET & TELECOM</span>
+              <span class="badge">[INTEL MESH]</span>
+            </div>
+            <div class="stat-pills-row" style="margin-top:6px;">
+              <div class="stat-pill"><span class="label">Wi-Fi Temp:</span><span id="wifi-temp" class="val">--°C</span></div>
+              <div class="stat-pill"><span class="label">Throughput:</span><span id="net-rates" class="val">↓ 0 KB/s | ↑ 0 KB/s</span></div>
+            </div>
+          </div>
+
+          <!-- 5. Power Profiles (powerprofilesctl) -->
+          <div class="deck-card">
+            <div class="card-headline">
+              <span>CPU POWER PROFILE</span>
+              <span class="badge">[POWERPROFILESCTL]</span>
+            </div>
+            <div class="btn-group-row">
+              <button class="profile-btn" data-profile="performance">[PERFORMANCE]</button>
+              <button class="profile-btn active" data-profile="balanced">[BALANCED]</button>
+              <button class="profile-btn" data-profile="power-saver">[POWER SAVER]</button>
+            </div>
+          </div>
+
+          <!-- 6. Custom Application Launchers (Extensible) -->
+          <div class="deck-card">
+            <div class="card-headline">
+              <span>APP LAUNCHERS</span>
+              <span class="badge">[CONFIG YAML]</span>
+            </div>
+            <div id="custom-launchers-grid" class="actions-tiles-grid"></div>
+          </div>
+        </div>
+      </section>
+      </main>
+
+      <!-- Footer -->
+      <!--
+        A sibling of <main>, not a child of it.
+
+        It used to sit at the end of the tab viewport, where every
+        `.tab-view` is `position: absolute; inset: 0`: each section
+        claimed the whole box and painted over the footer underneath, so
+        on the telemetry tab the two footer strings came out on top of
+        the system header. `.cyberdeck-app` is already a flex column and
+        this is `flex: 0 0 auto`, so out here it takes the height it
+        needs and leaves the rest to the tabs.
+      -->
+      <div class="deck-footer">
+        <div>CyberDeck &middot; CachyOS Linux</div>
+        <div class="desktop-shortcuts-tip">[ SHORTCUTS: <kbd>0</kbd> ALL · <kbd>1</kbd> AUDIO · <kbd>2</kbd> TELEMETRY · <kbd>3</kbd> COMMANDS · <kbd>M</kbd> MUTE · <kbd>F</kbd> FULLSCREEN ]</div>
+      </div>
+
+    <!-- BOTTOM DOCK NAVIGATION -->
+    <nav class="bottom-nav">
+      <button class="nav-item" data-tab="workstation" title="Full Workstation Overview">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="0"></rect><path d="M3 9h18M9 21V9"></path></svg>
+        <span>All</span>
+      </button>
+      <button class="nav-item active" data-tab="audio" title="Audio Mixer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg>
+        <span>Audio</span>
+      </button>
+      <button class="nav-item" data-tab="telemetry" title="Hardware Telemetry">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+        <span>Telemetry</span>
+      </button>
+      <button class="nav-item" data-tab="commands" title="Workstation Commands">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="3" width="20" height="14" rx="0"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+        <span>Commands</span>
+      </button>
+    </nav>
+
+    <!-- SAFETY CONFIRMATION MODAL -->
+    <div id="confirm-modal" class="modal-overlay">
+      <div class="modal-box">
+        <div id="modal-title" class="modal-title">Confirm Operation</div>
+        <div id="modal-desc" class="modal-desc">Are you sure you want to proceed with this operation?</div>
+        <div class="modal-buttons">
+          <button id="modal-btn-cancel" class="modal-btn cancel">CANCEL</button>
+          <button id="modal-btn-confirm" class="modal-btn confirm">CONFIRM</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="static/app.js"></script>
+</body>
+</html>

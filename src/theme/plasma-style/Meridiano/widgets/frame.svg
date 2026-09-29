@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="16" height="16" viewBox="0 0 16 16">
+  <defs>
+    <!-- The slice margins. Plasma only measures them: no fill, no
+         border, and their position does not matter. -->
+    <rect id="focus-hint-top-margin"    x="0" y="0"              width="16" height="4" fill="none" stroke="none"/>
+    <rect id="focus-hint-bottom-margin" x="0" y="12" width="16" height="4" fill="none" stroke="none"/>
+    <rect id="focus-hint-left-margin"   x="0" y="0"              width="4" height="16" fill="none" stroke="none"/>
+    <rect id="focus-hint-right-margin"  x="12" y="0" width="4" height="16" fill="none" stroke="none"/>
+
+    <style id="current-color-scheme" type="text/css">
+        .ColorScheme-Text { color: #e8e4dc; stop-color: #e8e4dc; }
+        .ColorScheme-Background { color: #1a1917; stop-color: #1a1917; }
+        .ColorScheme-Highlight { color: #ff9d2e; stop-color: #ff9d2e; }
+        .ColorScheme-ButtonBackground { color: #22201d; stop-color: #22201d; }
+        .ColorScheme-ButtonText { color: #e8e4dc; stop-color: #e8e4dc; }
+        .ColorScheme-Frame { color: #22201d; stop-color: #22201d; }
+      </style>
+  </defs>
+<g id="plain-topleft"><path class="ColorScheme-Background" d="M 2.5,0 H 4 V 4 H 0 V 2.5 A 2,2 0 0 1 2.5,0 Z" fill="ColorScheme-Background"/><path class="ColorScheme-Text" d="M 2.5,0.5 A 2,2 0 0 1 0.5,2.5" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></g>
+<g id="plain-top"><rect class="ColorScheme-Background" x="4" y="0" width="8" height="4" fill="ColorScheme-Background"/><path class="ColorScheme-Text" d="M 4,0.5 H 12" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></g>
+<g id="plain-topright"><path class="ColorScheme-Background" d="M 2.5,0 H 16 V 4 H 12 V 2.5 A 2,2 0 0 0 2.5,0 Z" fill="ColorScheme-Background"/><path class="ColorScheme-Text" d="M 2.5,0.5 A 2,2 0 0 0 12.5,2.5" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></g>
+<g id="plain-left"><rect class="ColorScheme-Background" x="0" y="4" width="4" height="8" fill="ColorScheme-Background"/><path class="ColorScheme-Text" d="M 0.5,4 V 12" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></g>
+<g id="plain-center"><rect class="ColorScheme-Background" x="4" y="4" width="8" height="8" fill="ColorScheme-Background"/></g>
+<g id="plain-right"><rect class="ColorScheme-Background" x="12" y="4" width="4" height="8" fill="ColorScheme-Background"/><path class="ColorScheme-Text" d="M 15.5,4 V 12" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></g>
+<g id="plain-bottomleft"><path class="ColorScheme-Background" d="M 2.5,12 H 4 V 16 H 0 V 2.5 A 2,2 0 0 0 2.5,12 Z" fill="ColorScheme-Background"/><path class="ColorScheme-Text" d="M 2.5,12.5 A 2,2 0 0 0 0.5,2.5" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></g>
+<g id="plain-bottom"><rect class="ColorScheme-Background" x="4" y="12" width="8" height="4" fill="ColorScheme-Background"/><path class="ColorScheme-Text" d="M 4,15.5 H 12" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></g>
+<g id="plain-bottomright"><path class="ColorScheme-Background" d="M 2.5,12 H 16 V 16 H 12 V 2.5 A 2,2 0 0 1 2.5,12 Z" fill="ColorScheme-Background"/><path class="ColorScheme-Text" d="M 2.5,12.5 A 2,2 0 0 1 12.5,2.5" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></g>
+</svg>

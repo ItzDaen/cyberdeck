@@ -1,0 +1,76 @@
+[General]
+# Meridiano — decoration configuration
+#
+# The text colours are comma-separated RGB, not hex.
+ActiveTextColor=232,228,220
+InactiveTextColor=168,162,152
+ActiveTextShadowColor=0,0,0,128
+InactiveTextShadowColor=0,0,0,128
+UseTextShadow=false
+TextShadowOffsetX=1
+TextShadowOffsetY=1
+TitleAlignment=Left
+TitleVerticalAlignment=Center
+# Aurorae's frame animation, the one that slides the decoration when a
+# window maximises and fades it in when a window opens. It was 0 here,
+# which is the same as saying off, and it was off in a theme whose whole
+# argument is a warm, quiet surface: nothing moved, and the desktop read
+# as a set of stills rather than a place. `Animation` is a 0/1 flag, not
+# a duration: KWin's own duration comes from
+# kdeglobals [KDE] AnimationDurationFactor.
+Animation=1
+# The drop shadow is KWin's, not artwork in decoration.svg, and this is a
+# flat theme with a 1px edge and square corners. Left off deliberately;
+# say so here rather than leaving a value nobody remembers choosing.
+Shadow=false
+LeftButtons=
+RightButtons=IAX
+# I=A, always
+#   I  the "below the others" button
+#   A  maximise/restore
+#   X  close
+# No minimise and no menu: they are summoned by the shortcut, and two
+# fewer buttons on the bar are two fewer things to read.
+
+[Layout]
+# Numbers in pixels. The title bar is 26 high: enough for a 10px Plex
+# title with spacing, little enough not to steal space from the window.
+TitleHeight=26
+TitleEdgeTop=6
+TitleEdgeTopMaximized=2
+TitleEdgeBottom=5
+TitleEdgeBottomMaximized=2
+TitleEdgeLeft=10
+TitleEdgeLeftMaximized=4
+TitleEdgeRight=10
+TitleEdgeRightMaximized=4
+TitleBorderLeft=0
+TitleBorderRight=0
+
+BorderLeft=1
+BorderRight=1
+BorderBottom=1
+BorderTop=0
+
+PaddingLeft=10
+PaddingRight=10
+PaddingTop=0
+PaddingBottom=0
+
+# 18x18 buttons with 6px of air: squares, not pills.
+ButtonWidth=18
+ButtonHeight=18
+ButtonSpacing=6
+ButtonMarginTop=4
+ButtonMarginTopMaximized=4
+ButtonWidthClose=18
+ButtonWidthMaximizeRestore=18
+ButtonWidthMinimize=18
+ButtonWidthShade=18
+ButtonWidthMenu=18
+ButtonWidthKeepabove=18
+ButtonWidthKeepbelow=18
+ButtonWidthAlldesktops=18
+ButtonWidthHelp=18
+ButtonWidthAppMenu=18
+ExplicitButtonSpacer=0

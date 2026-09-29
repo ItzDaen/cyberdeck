@@ -1,0 +1,17 @@
+# Author: Daen
+[Unit]
+Description=CyberCAVA Audio Stream Router v1.0
+After=pipewire.service wireplumber.service
+PartOf=pipewire.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/bin/cybercava-router.py
+Restart=always
+RestartSec=2
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

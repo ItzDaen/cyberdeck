@@ -1,0 +1,17 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Daen"
+            }
+        ],
+        "Category": "",
+        "Description": "The Meridiano identity as one selectable package: colour scheme, icon theme, Plasma theme and window decoration. It carries no wallpaper, so applying it leaves your wallpapers alone.",
+        "Id": "Meridiano",
+        "License": "GPL-3.0",
+        "Name": "Meridiano",
+        "Version": "1.0"
+    },
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "X-Plasma-APIVersion": "2"
+}

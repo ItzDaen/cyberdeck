@@ -1,0 +1,48 @@
+# Meridiano — what applying this package actually does.
+#
+# A Global Theme is Plasma's "one click" bundle: colour scheme, icon theme,
+# widget theme, window decoration, cursor and wallpaper, all set together.
+# Before this existed there was no Global Theme on this system at all, which
+# is why the Meridiano look could not be picked from the list of selectable
+# packages — it was four separate settings in four separate files, and any
+# other theme wiped all four.
+#
+# What is deliberately NOT here, and why. These are omissions on purpose, not
+# gaps to fill in later:
+#
+#   No [Wallpaper]. A Global Theme that names an image sets it on every
+#   screen. That would overwrite the animated video wallpaper on the second
+#   display, which is the wallpaper the performance-mode contract in
+#   docs/CONTRATTO-resa.md is written around. A theme package has no business
+#   silencing that, and picking an appearance is not a request to change which
+#   picture is on the desk.
+#
+#   No contents/layouts. Breeze ships a JavaScript panel layout. If this
+#   package shipped one too, choosing Meridiano would also re-lay-out the
+#   panels — the panel arrangement is the user's, tuned by hand, and has
+#   nothing to do with what colour things are.
+#
+#   No widgetStyle. The active value is Kvantum, which is a style engine with
+#   no Meridiano configuration behind it (kvantum.kvconfig is empty, no
+#   ~/.config/Kvantum/Meridiano). Naming it here would make the package claim
+#   a component it does not actually define.
+#
+#   No cursor. breeze_cursors is the stock one and is not ours to set.
+#
+# The identity is what this file names, and nothing more.
+
+[kdeglobals][General]
+ColorScheme=Meridiano
+
+[kdeglobals][Icons]
+Theme=Meridiano
+
+[plasmarc][Theme]
+name=Meridiano
+
+# In kwinrc, not kdeglobals. The decoration settings live here, and the
+# earlier reading of them out of kdeglobals was a misattributed grep: the
+# section does not exist in that file.
+[kwinrc][org.kde.kdecoration2]
+library=org.kde.kwin.aurorae.v2
+theme=__aurorae__svg__Meridiano

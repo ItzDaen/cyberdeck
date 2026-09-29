@@ -1,0 +1,74 @@
+[General]
+# `GeneralConfig` e' la sezione che kvconfig usa per il nome dello stile
+# Meridiano — impostazioni dello stile Kvantum
+#
+# KvFlat e' la base: nessuna sfumatura, nessun ombreggiamento, bordi
+# netti. E' il punto di partenza giusto per un tema che vuole superfici
+# piane da 1px.
+#
+# What follows takes away whatever is left of "rounded" and
+# "coloured" in the base style. The shape of the controls cannot
+# be changed by drawing them: Kvantum takes the geometry from
+# the base style, and from here it changes only colour, weight
+# and ornament. For the theme to stay faithful to the idea, the
+# base has to be the most neutral one available.
+theme=KvFlat
+
+[GeneralColors]
+window.color=#1a1917
+window.text=#e8e4dc
+base.color=#22201d
+base.text=#e8e4dc
+button.color=#22201d
+button.text=#e8e4dc
+button.hover=#2a2825
+button.hover.text=#e8e4dc
+button.pressed=#16140f
+button.pressed.text=#ff9d2e
+button.focus=#22201d
+button.focus.text=#ff9d2e
+button.default=#22201d
+button.default.text=#e8e4dc
+selection.color=#ff9d2e
+selection.text=#0e0d0b
+tooltip.base=#22201d
+tooltip.text=#e8e4dc
+tooltip.shadow=false
+link.color=#ff9d2e
+link.visited.color=#c8965a
+focus.color=#ff9d2e
+separator.color=#2a2825
+menubar.color=#16140f
+menubar.text=#e8e4dc
+menu.color=#1a1917
+menu.text=#e8e4dc
+menu.mnemonic.color=#ff9d2e
+progressbar.color=#ff9d2e
+tab.color=#22201d
+tab.text=#8a857c
+tab.active.color=#1a1917
+tab.active.text=#e8e4dc
+
+[Style]
+# Le quattro cose che rendono un tema Qt "morbido". Via tutte e quattro.
+no_gradient=true
+no_inactive_gradient=true
+no_border_radius=2
+no_shadow=true
+menubar_size=22
+item_height=22
+tooltip_radius=2
+scrollbar.width=9
+scrollbar.slider_radius=2
+checkbox.indicator.width=18
+checkbox.indicator.height=18
+radio_indicator.width=18
+radio_indicator.height=18
+tab.border_radius=2
+tab.panel_radius=2
+combobox.padding=4
+button.padding=6
+button.minimum_width=0
+window_border.active.color=#ff9d2e
+window_border.inactive.color=#2a2825
+window_border.width=1

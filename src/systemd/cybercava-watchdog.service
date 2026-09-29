@@ -1,0 +1,7 @@
+# Author: Daen
+[Unit]
+Description=CyberCAVA Watchdog v1.0
+After=pipewire.service
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/cybercava-watchdog.sh

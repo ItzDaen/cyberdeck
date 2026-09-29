@@ -1,0 +1,60 @@
+# Author: Daen
+# CyberDeck Workstation Configuration v2.0
+server:
+  port: 8765
+  bind_tailscale_only: true
+  enable_auth: true
+  # The address you reach this deck on, without the scheme. A Tailscale
+  # MagicDNS name if that is how you get to it, a hostname, whatever.
+  # Only used for the banner printed at startup and for the certificate
+  # name; leave it empty and the banner prints the local URL instead.
+  public_host: ""
+
+# Predefined Deck Quick Buttons
+deck_buttons:
+  - id: "sink_browser"
+    label: "Browser"
+    sublabel: "Web & Media"
+    icon: "globe"
+    type: "sink_mute_toggle"
+    target: "Browser"
+    color: "#f97316"
+    mute_color: "#ef4444"
+
+  - id: "sink_anc"
+    label: "ANC Headphones"
+    sublabel: "Current output hardware"
+    icon: "volume-2"
+    type: "sink_mute_toggle"
+    target: "DECK_HW"
+    color: "#a855f7"
+    mute_color: "#ef4444"
+
+  - id: "sink_main"
+    label: "Main Desktop"
+    sublabel: "Speakers / Master"
+    icon: "volume-2"
+    type: "sink_mute_toggle"
+    target: "Main"
+    color: "#3b82f6"
+    mute_color: "#ef4444"
+
+# Whitelisted Custom Macro Commands
+macros: []
+
+# Custom Application Launchers (add here the applications you want to start from the dashboard)
+# Example:
+# launchers:
+#   - id: "steam"
+#     label: "Steam"
+#     sublabel: "Gaming Client"
+#     icon: "gamepad"
+#     command: "steam"
+#     color: "#00f0ff"
+#   - id: "discord"
+#     label: "Discord"
+#     sublabel: "Chat & Voice"
+#     icon: "message-square"
+#     command: "discord"
+#     color: "#5865f2"
+launchers: []

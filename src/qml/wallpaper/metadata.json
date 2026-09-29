@@ -1,0 +1,27 @@
+{
+  "KPackageStructure": "Plasma/Wallpaper",
+  "KPlugin": {
+    "Authors": [
+      {
+        "Name": "Daen"
+      }
+    ],
+    "Category": "",
+    "Description": "A surface with a warm background, grain and vignette, with a telemetry HUD and a responsive audio analyser. No shaders: zero GPU cost.",
+    "Icon": "preferences-desktop-wallpaper",
+    "Id": "cyberdeck.instrument.field",
+    "License": "GPLv3+",
+    "Name": "CyberDeck :: Instrument Field",
+    "Version": "2.0"
+  },
+  "Keywords": [
+    "instrument",
+    "minimal",
+    "telemetry",
+    "hud",
+    "cava",
+    "vitals"
+  ],
+  "X-KDE-ParentApp": "org.kde.plasmashell",
+  "X-Plasma-API-Minimum-Version": "6.0"
+}

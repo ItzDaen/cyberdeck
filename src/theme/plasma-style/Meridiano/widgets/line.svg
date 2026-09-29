@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="16" height="16" viewBox="0 0 16 16">
+  <defs>
+    <!-- The slice margins. Plasma only measures them: no fill, no
+         border, and their position does not matter. -->
+    <rect id="focus-hint-top-margin"    x="0" y="0"              width="16" height="4" fill="none" stroke="none"/>
+    <rect id="focus-hint-bottom-margin" x="0" y="12" width="16" height="4" fill="none" stroke="none"/>
+    <rect id="focus-hint-left-margin"   x="0" y="0"              width="4" height="16" fill="none" stroke="none"/>
+    <rect id="focus-hint-right-margin"  x="12" y="0" width="4" height="16" fill="none" stroke="none"/>
+    <rect id="hint-line-size" x="0" y="0" width="1" height="1" fill="none" stroke="none"/>
+
+    <style id="current-color-scheme" type="text/css">
+        .ColorScheme-Text { color: #e8e4dc; stop-color: #e8e4dc; }
+        .ColorScheme-Background { color: #1a1917; stop-color: #1a1917; }
+        .ColorScheme-Highlight { color: #ff9d2e; stop-color: #ff9d2e; }
+        .ColorScheme-ButtonBackground { color: #22201d; stop-color: #22201d; }
+        .ColorScheme-ButtonText { color: #e8e4dc; stop-color: #e8e4dc; }
+        .ColorScheme-Frame { color: #22201d; stop-color: #22201d; }
+      </style>
+  </defs>
+<g id="horizontal-line"><rect x="0" y="8" width="16" height="1" class="ColorScheme-Text" opacity="0.20" fill="currentColor"/></g>
+<g id="vertical-line"><rect x="8" y="0" width="1" height="16" class="ColorScheme-Text" opacity="0.20" fill="currentColor"/></g>
+</svg>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="16" height="16" viewBox="0 0 16 16">
+  <defs>
+    <!-- The slice margins. Plasma only measures them: no fill, no
+         border, and their position does not matter. -->
+    <rect id="focus-hint-top-margin"    x="0" y="0"              width="16" height="4" fill="none" stroke="none"/>
+    <rect id="focus-hint-bottom-margin" x="0" y="12" width="16" height="4" fill="none" stroke="none"/>
+    <rect id="focus-hint-left-margin"   x="0" y="0"              width="4" height="16" fill="none" stroke="none"/>
+    <rect id="focus-hint-right-margin"  x="12" y="0" width="4" height="16" fill="none" stroke="none"/>
+
+    <style id="current-color-scheme" type="text/css">
+        .ColorScheme-Text { color: #e8e4dc; stop-color: #e8e4dc; }
+        .ColorScheme-Background { color: #1a1917; stop-color: #1a1917; }
+        .ColorScheme-Highlight { color: #ff9d2e; stop-color: #ff9d2e; }
+        .ColorScheme-ButtonBackground { color: #22201d; stop-color: #22201d; }
+        .ColorScheme-ButtonText { color: #e8e4dc; stop-color: #e8e4dc; }
+        .ColorScheme-Frame { color: #22201d; stop-color: #22201d; }
+      </style>
+  </defs>
+<g id="checkbox"><path d="M 4,8.5 L 7,11.5 L 12,5" fill="none" stroke="currentColor" stroke-width="2" class="ColorScheme-Highlight" stroke-linecap="round" stroke-linejoin="round"/></g>
+<g id="radiobutton"><circle cx="8" cy="8" r="4" fill="currentColor" class="ColorScheme-Highlight"/></g>
+</svg>

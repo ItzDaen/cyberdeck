@@ -1,0 +1,9 @@
+# Author: Daen
+[Unit]
+Description=CyberCAVA Watchdog timer (60s)
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+Unit=cybercava-watchdog.service
+[Install]
+WantedBy=timers.target

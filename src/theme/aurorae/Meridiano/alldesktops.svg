@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">
+<!-- On all desktops: two monitors side by side. One <g> per state: Aurorae reads the ids. -->
+<g id="active-center">
+<rect x="1.75" y="5.75" width="5" height="6.5" fill="none" stroke="#8a857c" stroke-width="1.5"/>
+  <rect x="11.25" y="5.75" width="5" height="6.5" fill="none" stroke="#8a857c" stroke-width="1.5"/>
+</g>
+<g id="hover-center">
+<rect x="1.75" y="5.75" width="5" height="6.5" fill="none" stroke="#e8e4dc" stroke-width="1.5"/>
+  <rect x="11.25" y="5.75" width="5" height="6.5" fill="none" stroke="#e8e4dc" stroke-width="1.5"/>
+</g>
+<g id="pressed-center">
+<rect x="1.75" y="5.75" width="5" height="6.5" fill="none" stroke="#ff9d2e" stroke-width="1.5"/>
+  <rect x="11.25" y="5.75" width="5" height="6.5" fill="none" stroke="#ff9d2e" stroke-width="1.5"/>
+</g>
+<g id="inactive-center">
+<rect x="1.75" y="5.75" width="5" height="6.5" fill="none" stroke="#565248" stroke-width="1.5"/>
+  <rect x="11.25" y="5.75" width="5" height="6.5" fill="none" stroke="#565248" stroke-width="1.5"/>
+</g>
+</svg>

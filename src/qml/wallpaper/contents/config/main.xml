@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+      http://www.kde.org/standards/kcfg/1.0/kcfg.xsd" >
+  <kcfgfile name=""/>
+
+  <group name="General">
+    <entry name="ShowHud" type="Bool">
+      <label>Show Telemetry HUD</label>
+      <default>false</default>
+    </entry>
+    <entry name="HudPosition" type="String">
+      <label>HUD Position Preset</label>
+      <default>top-right</default>
+    </entry>
+    <entry name="HudCustomX" type="Int">
+      <label>HUD Custom X</label>
+      <default>0</default>
+    </entry>
+    <entry name="HudCustomY" type="Int">
+      <label>HUD Custom Y</label>
+      <default>0</default>
+    </entry>
+    <entry name="HudWidth" type="Int">
+      <label>HUD Width</label>
+      <default>460</default>
+    </entry>
+    <entry name="HudHeight" type="Int">
+      <label>HUD Height</label>
+      <default>440</default>
+    </entry>
+    <entry name="SpectrumBottomInset" type="Int">
+      <label>Audio spectrum bottom inset (px above the panel)</label>
+      <default>56</default>
+    </entry>
+    <entry name="PerformanceMode" type="Bool">
+      <label>Yield to other animated wallpapers (stop the audio spectrum)</label>
+      <default>false</default>
+    </entry>
+  </group>
+</kcfg>

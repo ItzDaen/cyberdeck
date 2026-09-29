@@ -1,0 +1,19 @@
+{
+  "name": "CyberDeck",
+  "short_name": "CyberDeck",
+  "version": "2.0.0",
+  "description": "Telemetry and remote control of Daen's PC",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0e0d0b",
+  "theme_color": "#0e0d0b",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "static/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
