@@ -169,7 +169,7 @@
   // Haptic Feedback
   function triggerHaptic(duration = 35) {
     if (navigator.vibrate) {
-      try { navigator.vibrate(duration); } catch (e) {}
+      try { navigator.vibrate(duration); } catch (e) { /* haptics are best-effort */ }
     }
   }
 
@@ -319,7 +319,7 @@
   // WebSocket Connection
   function connectWebSocket() {
     if (ws) {
-      try { ws.close(); } catch (e) {}
+      try { ws.close(); } catch (e) { /* already closing or closed */ }
     }
 
     if (connectionDot) {
@@ -692,10 +692,25 @@
     const sinks = currentState.audio.sinks || {};
 
     // If existing tiles match button count, update in-place without clearing DOM
+    // (and without losing the click listeners attached at creation).
+    // This branch used to be a no-op -- it fetched each tile and returned
+    // -- so mute colours froze at first render. Now it refreshes exactly
+    // what creation sets: the muted class, the accent and the symbol.
     if (macroGrid.children.length === buttons.length && buttons.length > 0) {
       buttons.forEach((btn, idx) => {
         const tile = macroGrid.children[idx];
         if (!tile) return;
+        let isMuted = false;
+        if (btn.type === 'sink_mute_toggle') {
+          const snk = sinks[btn.target];
+          isMuted = snk ? snk.mute : false;
+        }
+        tile.classList.toggle('is-muted', isMuted);
+        tile.style.setProperty('--accent-col', isMuted ? C_ALARM() : C_ACC());
+        const iconEl = tile.querySelector('.macro-icon');
+        if (iconEl && btn.icon === 'volume-2') {
+          iconEl.textContent = isMuted ? '🔈' : '🔊';
+        }
       });
       return;
     }

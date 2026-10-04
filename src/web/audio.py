@@ -18,7 +18,6 @@ class AudioManager:
     def __init__(self):
         self._listeners: List[Callable[[Dict[str, Any]], None]] = []
         self._subscribe_task: Optional[asyncio.Task] = None
-        self._last_state: Dict[str, Any] = {"sources": {}, "sinks": {}, "discord": {}}
         self._lock = asyncio.Lock()
 
     def register_listener(self, callback: Callable[[Dict[str, Any]], None]):
@@ -136,12 +135,11 @@ class AudioManager:
             except Exception as e:
                 logger.debug(f"Error checking Discord state: {e}")
 
-            self._last_state = {
+            return {
                 "sources": sources_dict,
                 "sinks": sinks_dict,
                 "discord": discord_state
             }
-            return self._last_state
 
     async def toggle_source_mute(self, source_name: str) -> bool:
         if not self._is_valid_name(source_name):

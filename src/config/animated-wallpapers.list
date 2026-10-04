@@ -1,22 +1,19 @@
 # Wallpaper plugins that are known to animate, one plugin id per line.
 #
-# The performance mode reads this to decide whether to stop the audio
-# spectrum. It stops it only when an animated wallpaper is running on a
-# screen that is not showing ours: if our own wallpaper is on every
-# screen there is nothing to defer to, and going quiet would be giving
-# up the only animation on the desktop for the sake of a wallpaper that
-# is not there.
+# The detector reads this to REPORT what is animating on screens that do
+# not show ours. It reports only: nothing automatic acts on it. The audio
+# spectrum always runs (about 2.4% of a core against a video wallpaper's
+# 3-19% of the GPU), so there is nothing to stop and no reason to.
+#
+# The manual performance mode reads this too, to know which wallpapers to
+# swap out for the still one while a game or a render owns the GPU -- and
+# to put exactly those back afterwards.
 #
 # This is your statement about your own desktop, so it is yours to edit.
-# Add a line when you install something that animates; it takes effect on
-# the next detector pass, within a couple of seconds. Remove a line and
-# the spectrum comes back.
-#
-# It is a list and it can always be out of date. The project does not
-# have to know about a plugin for it to be able to cooperate: a
-# third-party animated wallpaper can read the published signal directly
-# and yield on its own, which is the contract in docs/CONTRATTO-resa.md.
-# This list is only for the ones we cannot make cooperate.
+# Add a line when you install something that animates. This list is only
+# for the ones we cannot make cooperate: a third-party animated wallpaper
+# can read the published yield signal directly and yield on its own,
+# which is the contract in docs/CONTRATTO-resa.md.
 
 # Video wallpaper. Decodes a file continuously.
 luisbocanegra.smart.video.wallpaper.reborn

@@ -58,6 +58,21 @@ def cyberhud() -> str:
     return "cyberhud"
 
 
+# The containments that are actually a screen. Kept in sync with
+# SCREEN_PLUGINS in src/bin/cyberhud by hand -- the CLI is a script
+# without an importable module, so this cannot be imported, only mirrored.
+# A panel carries a wallpaperplugin too; reading it would count the panel
+# as a desktop. When this listed only org.kde.plasma.folder, screens with
+# org.kde.desktopcontainment were invisible to the deck but visible to the
+# CLI, and the two disagreed about how many screens exist.
+SCREEN_PLUGINS = ("org.kde.plasma.folder", "org.kde.desktopcontainment")
+
+# Same story: the CLI falls back to this when the user's list has not been
+# deployed yet (ANIMATED_FALLBACK in src/bin/cyberhud). Without it a fresh
+# install reported `animated: []` here while the CLI still saw the video.
+ANIMATED_FALLBACK = ("luisbocanegra.smart.video.wallpaper.reborn",)
+
+
 class SystemController:
     """Safe, asynchronous controller for workstation actions, KDE Plasma session, and system power."""
 
@@ -75,6 +90,13 @@ class SystemController:
         self.last_error: Optional[str] = None
 
     def update_launchers(self, launchers: List[Dict[str, Any]]):
+        """Replace the launcher table without restarting the server.
+
+        Wired, not decorative: `CyberDeckServer.reload_config()` calls this
+        after re-reading config.yaml + config.local.yaml, so editing a
+        launcher no longer needs a service restart. Previously nothing
+        called it and a config change sat unread until reboot.
+        """
         self.launchers = {l["id"]: l for l in (launchers or []) if "id" in l and "command" in l}
 
     async def _run_command(self, cmd: List[str], timeout: float = 6.0) -> bool:
@@ -135,7 +157,9 @@ class SystemController:
         """Screens whose animated wallpaper the manual mode is holding off.
 
         Read from the CLI's own record, so there is one answer and not two
-        that can disagree.
+        that can disagree. Sorted numerically like the CLI does
+        (`sorted(..., key=int)` in `gpu_free_screens()` there): a
+        lexicographic sort puts containment 10 before 2.
         """
         saved = Path.home() / ".cache" / "cyberdeck" / "gpu-free-wallpapers.json"
         if not saved.exists():
@@ -145,7 +169,12 @@ class SystemController:
         except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"cannot read the GPU-free record: {e}")
             return []
-        return sorted(str(k) for k in data) if isinstance(data, dict) else []
+        if not isinstance(data, dict):
+            return []
+        try:
+            return sorted((str(k) for k in data), key=int)
+        except ValueError:
+            return sorted(str(k) for k in data)
 
     async def set_performance_auto(self) -> bool:
         """Hand the decision back to the detector.
@@ -193,7 +222,7 @@ class SystemController:
             for m in re.finditer(r"^\[Containments\]\[(\d+)\]\s*$(.*?)(?=^\[|\Z)",
                                  text, re.M | re.S):
                 kind = re.search(r"^plugin=(.*)$", m.group(2), re.M)
-                if not kind or kind.group(1).strip() != "org.kde.plasma.folder":
+                if not kind or kind.group(1).strip() not in SCREEN_PLUGINS:
                     continue
                 wp = re.search(r"^wallpaperplugin=(.*)$", m.group(2), re.M)
                 state["screens"][m.group(1)] = wp.group(1).strip() if wp else ""
@@ -207,6 +236,11 @@ class SystemController:
                 line = line.split("#", 1)[0].strip()
                 if line:
                     state["animated"].append(line)
+        if not state["animated"]:
+            # Same fallback as the CLI: on a fresh install the list has not
+            # been seeded yet, and "nothing animates" would be a lie the
+            # CLI does not tell.
+            state["animated"].extend(ANIMATED_FALLBACK)
 
         # What is animating on a screen that is not showing ours. Reported,
         # never acted on: the performance mode is the user's to throw and
@@ -214,11 +248,16 @@ class SystemController:
         # be "detected" and the page drew it next to a "DECIDED BY
         # detector" line, which said out loud that a timer was in charge of
         # the desktop.
+        #
+        # Narrow on purpose, like the CLI (`animated_elsewhere` there
+        # returns nothing unless some screen shows ours): with no `ours`
+        # anywhere there is nothing of the user's to describe, and the card
+        # used to disagree with `cyberhud performance status` about it.
         ours = {cid for cid, wp in state["screens"].items()
                 if wp == "cyberdeck.instrument.field"}
         state["animating_elsewhere"] = sorted({
             wp for cid, wp in state["screens"].items()
-            if wp in state["animated"] and cid not in ours})
+            if ours and wp in state["animated"] and cid not in ours})
         return state
 
     # -------------------------------------------------------------
@@ -229,16 +268,37 @@ class SystemController:
         return await self._run_command(["loginctl", "lock-session"])
 
     async def set_display_dpms(self, state: str = "off") -> bool:
-        """Turn display power management off (sleep screens) or on."""
-        target = "off" if state.lower() in ("off", "sleep", "standby") else "on"
+        """Turn display power management off (sleep screens) or on.
+
+        Validated, not defaulted: the old code mapped every unknown string
+        to "on", so a typo like "of" woke the screens instead of erroring.
+        Unknown input raises and the server answers 400.
+        """
+        clean = (state or "").strip().lower()
+        if clean in ("off", "sleep", "standby"):
+            target = "off"
+        elif clean in ("on", "wake", "wakeup"):
+            target = "on"
+        else:
+            raise ValueError(f"Unknown DPMS state: {state!r} (want off/on)")
         kscreen_bin = shutil.which("kscreen-doctor")
         if kscreen_bin:
             return await self._run_command([kscreen_bin, "--dpms", target])
         return False
 
     async def switch_virtual_desktop(self, direction: str) -> bool:
-        """Navigate KDE Plasma virtual desktops (next / previous)."""
-        method = "nextDesktop" if direction.lower() == "next" else "previousDesktop"
+        """Navigate KDE Plasma virtual desktops (next / previous).
+
+        Validated like DPMS above: anything but next/previous raises
+        instead of silently going previous.
+        """
+        clean = (direction or "").strip().lower()
+        if clean == "next":
+            method = "nextDesktop"
+        elif clean in ("previous", "prev"):
+            method = "previousDesktop"
+        else:
+            raise ValueError(f"Unknown desktop direction: {direction!r} (want next/previous)")
         return await self._run_command([
             "qdbus6", "org.kde.KWin", "/KWin", f"org.kde.KWin.{method}"
         ])

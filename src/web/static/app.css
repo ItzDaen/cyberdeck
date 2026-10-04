@@ -75,12 +75,7 @@
     --alarm:          #d8492f;
     --alarm-dim:      #7a2a1a;
     --idle:           #6b7a6f;
-    --idle-dim:       #3a423b;
 
-/* Thresholds: see Theme.hotLevel. Not at 90%: any normalisation
-keeps the peaks below it, and an unreachable threshold is dead colour. */
-    --hot: 0.65;
-    --overload: 0.88;
 
     /* Typography */
     --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -90,7 +85,6 @@ keeps the peaks below it, and an unreachable threshold is dead colour. */
     --fs-label:  10px;
     --fs-value:  13px;
     --fs-read:   22px;
-    --fs-hero:   34px;
 
     /* Measurements */
     --gap:      8px;
@@ -110,14 +104,12 @@ of them resolves to nothing (and none accidentally inherits the
 parent's colour). They should go together with the inline styles that
 use them. */
     --font-mono:      var(--mono);
-    --font-sans:      var(--sans);
     --text-main:      var(--text);
     --text-secondary: var(--text-2);
     --text-dim:       var(--text-3);
     --matrix-green:   var(--accent);      /* the green is gone: one accent only */
     --cyber-cyan:     var(--accent);
     --tactical-red:   var(--alarm);
-    --tactical-amber: var(--accent);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -160,8 +152,7 @@ it is what makes the background read as a surface rather than as fill. */
 /* Numbers always with tabular figures: without them the digits dance on
 every update and the column of values shimmers. With numbers changing
 every second it is the difference between a dashboard and a gauge. */
-.metric-value, .metric-big, .strip-vol-text, .deck-btn-value,
-.fader-vol-text, .mono, [class*="temp-"], [class*="volt-"] {
+.metric-big, .strip-vol-text, [class*="temp-"], [class*="volt-"] {
     font-family: var(--mono);
     font-variant-numeric: tabular-nums;
 }
@@ -289,7 +280,7 @@ every second it is the difference between a dashboard and a gauge. */
     white-space: nowrap;
 }
 
-.header-mode-btn, .header-perf-btn, .panic-mute-btn {
+.header-mode-btn, .panic-mute-btn {
     appearance: none;
     font-family: var(--sans);
     font-size: var(--fs-label);
@@ -496,29 +487,6 @@ it is a single rule, and only when the card is in the foreground. */
    LETTURE
    Tre livelli: primario grande, secondario, e cifre in mono.
    ═══════════════════════════════════════════════════════════════════════════ */
-.metric-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: var(--gap-wide);
-}
-
-.metric-block {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-}
-
-.metric-label {
-    font-size: var(--fs-micro);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text-2);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
 .metric-big {
     font-size: var(--fs-read);
     font-weight: 500;
@@ -527,73 +495,12 @@ it is a single rule, and only when the card is in the foreground. */
     letter-spacing: -0.01em;
 }
 
-.metric-value {
-    font-size: var(--fs-value);
-    color: var(--text);
-    letter-spacing: 0;
-}
-
 .metric-unit {
     font-family: var(--sans);
     font-size: var(--fs-label);
     color: var(--text-3);
     margin-left: 2px;
 }
-
-.metric-sub {
-    font-family: var(--mono);
-    font-size: var(--fs-micro);
-    color: var(--text-3);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Below the threshold everything is unlit. Above it, amber. Above the
-overload, brick red. */
-.metric-big.is-hot { color: var(--accent); }
-.metric-big.is-overload { color: var(--alarm); }
-.metric-sub.is-hot { color: var(--accent); }
-.metric-sub.is-overload { color: var(--alarm); }
-
-/* ── Bars ────────────────────────────────────────────────────────────────── */
-.meter-track {
-    height: 4px;
-    background: var(--rule-soft);
-    border-radius: 1px;
-    overflow: hidden;
-    position: relative;
-}
-
-.meter-fill {
-    height: 100%;
-    background: var(--idle);
-    border-radius: 1px;
-    transition: width 220ms cubic-bezier(0.4, 0, 0.2, 1),
-                background var(--transition);
-}
-
-.meter-fill.is-hot { background: var(--accent); }
-.meter-fill.is-overload { background: var(--alarm); }
-
-/* Segments: the only inheritance from the v1.0 language that held up. A
-segmented bar is an instrument, not an effect. */
-.meter-segments {
-    display: flex;
-    gap: 2px;
-    height: 4px;
-}
-
-.meter-segments span {
-    flex: 1 1 0;
-    background: var(--rule-soft);
-    border-radius: 1px;
-    transition: background var(--transition);
-}
-
-.meter-segments span.on { background: var(--idle); }
-.meter-segments span.edge { background: var(--accent); }
-.meter-segments span.over { background: var(--alarm); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    FADER
@@ -735,7 +642,7 @@ accent border to tell it apart without changing the spacing. */
     gap: var(--gap);
 }
 
-.action-tile, .deck-btn, .macro-tile {
+.action-tile {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -757,55 +664,20 @@ accent border to tell it apart without changing the spacing. */
     transition: var(--transition);
 }
 
-.action-tile:hover, .deck-btn:hover, .macro-tile:hover {
+.action-tile:hover {
     color: var(--text);
     border-color: var(--accent-dim);
     background: var(--surface);
 }
 
-.action-tile:active, .deck-btn:active, .macro-tile:active {
+.action-tile:active {
     transform: translateY(1px);
 }
 
-.action-tile svg, .deck-btn svg, .macro-tile svg {
+.action-tile svg {
     width: 20px;
     height: 20px;
     stroke-width: 1.6;
-}
-
-/* Active state: the accent colour says "this is happening", not "you
-pressed it". It is the only information the remaining space can give. */
-.action-tile.is-active,
-.deck-btn.is-active,
-.macro-tile.is-active {
-    color: var(--accent);
-    border-color: var(--accent);
-    background: var(--accent-wash);
-}
-
-.action-tile.is-danger, .deck-btn.is-danger {
-    color: var(--alarm);
-    border-color: var(--alarm-dim);
-}
-
-.action-tile.is-danger:hover, .deck-btn.is-danger:hover {
-    border-color: var(--alarm);
-    background: rgba(216, 73, 47, 0.10);
-}
-
-.deck-btn-label {
-    font-size: var(--fs-value);
-    color: var(--text);
-    font-weight: 500;
-}
-
-.deck-btn-sublabel, .macro-tile .sublabel {
-    font-family: var(--mono);
-    font-size: var(--fs-micro);
-    color: var(--text-3);
-    font-weight: 400;
-    letter-spacing: 0.02em;
-    text-transform: none;
 }
 
 /* ── Microphone button ──────────────────────────────────────────────────── */
@@ -887,7 +759,7 @@ minmax(140px) two of them fitted and the third wrapped. */
    core-thread-badge, core-phys-tag, core-bar-wrapper, core-list-bar-bg,
    core-list-bar-fill, core-stats, core-freq, core-pct.
    ═══════════════════════════════════════════════════════════════════════════ */
-.cores-list-container, .core-list-container {
+.cores-list-container {
     display: flex;
     flex-direction: column;
 }
@@ -1019,8 +891,6 @@ minmax(140px) two of them fitted and the third wrapped. */
 
 /* A sensor that does not answer is not a value: it is an absence. It
 goes dark instead of showing "0", which would be a false measurement. */
-.inactive { opacity: 0.38; }
-
 /* ── Indicator row ──────────────────────────────────────────────────────── */
 .gauge-row {
     display: flex;
@@ -1028,21 +898,6 @@ goes dark instead of showing "0", which would be a false measurement. */
     justify-content: space-between;
     gap: var(--gap);
     margin-bottom: 5px;
-}
-
-.gauge-row .gauge-label {
-    font-size: var(--fs-label);
-    letter-spacing: 0.10em;
-    text-transform: uppercase;
-    color: var(--text-2);
-}
-
-.gauge-row .gauge-value {
-    font-family: var(--mono);
-    font-size: var(--fs-read);
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-    color: var(--text);
 }
 
 .progress-bar-bg {
@@ -1070,12 +925,6 @@ both point at the accent: a single source of accent colour. */
 .progress-bar-fill.magenta,
 .progress-bar-fill.amber { background: var(--accent); }
 
-.progress-bar-fill.is-hot { background: var(--accent); }
-.progress-bar-fill.is-overload { background: var(--alarm); }
-
-.gauge-row .gauge-value.is-hot { color: var(--accent); }
-.gauge-row .gauge-value.is-overload { color: var(--alarm); }
-
 /* ═══════════════════════════════════════════════════════════════════════════
    TESSERE MACRO E MODIFICATORI
    The Stream Deck tiles are built by app.js, not written into
@@ -1100,9 +949,7 @@ both point at the accent: a single source of accent colour. */
 
 .macro-btn:hover { color: var(--text); border-color: var(--accent-dim); background: var(--surface); }
 .macro-btn:active { transform: translateY(1px); }
-.macro-btn.is-active { color: var(--accent); border-color: var(--accent); background: var(--accent-wash); }
 .macro-btn.is-muted { color: var(--alarm); border-color: var(--alarm-dim); }
-.macro-btn.danger { color: var(--alarm); border-color: var(--alarm-dim); }
 
 .macro-icon { font-size: 17px; line-height: 1; }
 
@@ -1196,19 +1043,10 @@ cell, and at a glance only the active one is distinguishable. */
     line-height: 1.6;
 }
 
-/* ── Connection states ─────────────────────────────────────────────────── */
-.connection-pill.online     { border-color: var(--accent-dim); }
-.connection-pill.connecting { border-color: var(--rule); }
-.connection-pill.offline,
-.connection-pill.disconnected { border-color: var(--alarm-dim); }
-
-.connection-pill.offline #connection-label,
-.connection-pill.disconnected #connection-label { color: var(--alarm); }
-
 /* ═══════════════════════════════════════════════════════════════════════════
    MEDIA PLAYER
    ═══════════════════════════════════════════════════════════════════════════ */
-.media-player-card .media-art {
+.media-player-card .media-art-box {
     width: 52px;
     height: 52px;
     flex: 0 0 auto;
@@ -1222,13 +1060,13 @@ cell, and at a glance only the active one is distinguishable. */
     overflow: hidden;
 }
 
-.media-player-card .media-art img {
+.media-player-card .media-art-box img {
     width: 100%;
     height: 100%;
     object-fit: cover;
 }
 
-.media-info {
+.media-text-box {
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -1252,28 +1090,14 @@ cell, and at a glance only the active one is distinguishable. */
     white-space: nowrap;
 }
 
-.media-transport {
+.media-controls-row {
     display: flex;
     align-items: center;
     gap: var(--gap);
     margin-top: var(--pad);
 }
 
-.media-progress {
-    flex: 1 1 auto;
-    height: 3px;
-    background: var(--rule-soft);
-    border-radius: 1px;
-    overflow: hidden;
-}
-
-.media-progress > div {
-    height: 100%;
-    background: var(--text-3);
-    transition: width 300ms linear;
-}
-
-.media-btn {
+.media-ctrl-btn {
     appearance: none;
     background: transparent;
     border: 1px solid var(--rule);
@@ -1288,8 +1112,8 @@ cell, and at a glance only the active one is distinguishable. */
     transition: var(--transition);
 }
 
-.media-btn:hover { color: var(--accent); border-color: var(--accent-dim); }
-.media-btn.is-playing { color: var(--accent); border-color: var(--accent-dim); }
+.media-ctrl-btn:hover { color: var(--accent); border-color: var(--accent-dim); }
+.media-ctrl-btn.play-pause { color: var(--accent); border-color: var(--accent-dim); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    MODALE
@@ -1298,11 +1122,11 @@ cell, and at a glance only the active one is distinguishable. */
    l'intera pagina al caricamento: il pannello sotto risultava illeggibile
    e sembrava un problema di colori, mentre era di stato.
    ═══════════════════════════════════════════════════════════════════════════ */
-.modal-overlay, .confirm-modal {
+.modal-overlay {
     display: none;
 }
 
-.modal-overlay.active, .confirm-modal.active {
+.modal-overlay.active {
     position: fixed;
     inset: 0;
     z-index: 900;
@@ -1316,7 +1140,7 @@ cell, and at a glance only the active one is distinguishable. */
 
 /* For safety: if in future the markup uses the `hidden` attribute
 instead of the class, it is still closed. */
-.modal-overlay[hidden], .confirm-modal[hidden] { display: none; }
+.modal-overlay[hidden] { display: none; }
 
 .modal-box {
     width: 100%;
@@ -1324,7 +1148,7 @@ instead of the class, it is still closed. */
     background: var(--surface);
     border: 1px solid var(--edge-strong);
     border-radius: var(--radius);
-    padding: var(--pad-wide, 20px);
+    padding: 20px;
 }
 
 .modal-title {
@@ -1341,12 +1165,6 @@ instead of the class, it is still closed. */
     color: var(--text-2);
     line-height: 1.5;
     margin-bottom: var(--gap-wide);
-}
-
-.modal-actions {
-    display: flex;
-    gap: var(--gap);
-    justify-content: flex-end;
 }
 
 .modal-btn {
@@ -1383,29 +1201,6 @@ instead of the class, it is still closed. */
    a red pulse for thermal throttling that could fire while you
    were looking at something else.
    ═══════════════════════════════════════════════════════════════════════════ */
-/* Banner alert. A padded, bordered, uppercase block.
-   NOT currently applied to any element: nothing in the markup uses
-   it. It used to be added by applyDynamicSpectrum to every reading
-   over its threshold, which put 9px of padding and a border around a
-   percentage span -- sixteen red boxes on the core list at 90% load.
-   A banner style must never be applied to a number. */
-.throttle-alert, .voltage-alert {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 9px 12px;
-    margin-bottom: var(--pad);
-    background: rgba(216, 73, 47, 0.08);
-    border: 1px solid var(--alarm-dim);
-    border-radius: var(--radius);
-    font-size: var(--fs-label);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--alarm);
-}
-
-.throttle-alert[hidden], .voltage-alert[hidden] { display: none; }
-
 /* ═══════════════════════════════════════════════════════════════════════════
    PIE DI PAGINA E NAVIGAZIONE MOBILE
    ═══════════════════════════════════════════════════════════════════════════ */

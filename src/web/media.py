@@ -33,6 +33,14 @@ class MediaManager:
     def __init__(self, macros: Optional[List[Dict[str, Any]]] = None):
         self.macros = {m["id"]: m for m in (macros or []) if "id" in m and "command" in m}
 
+    def update_macros(self, macros: List[Dict[str, Any]]):
+        """Replace the macro table without restarting the server.
+
+        Same contract as `SystemController.update_launchers`: called by
+        `CyberDeckServer.reload_config()` on SIGHUP.
+        """
+        self.macros = {m["id"]: m for m in (macros or []) if "id" in m and "command" in m}
+
     async def _get_sink_inputs(self) -> List[Dict[str, Any]]:
         """Fetch all active PipeWire sink inputs."""
         try:
@@ -134,6 +142,7 @@ class MediaManager:
                     
                     title = ""
                     artist = ""
+                    art_url = ""
                     length_sec = 0.0
                     trackid = "/org/mpris/MediaPlayer2/TrackList/NoTrack"
 
@@ -142,6 +151,10 @@ class MediaManager:
                             title = line.split("xesam:title:", 1)[1].strip()
                         elif line.startswith("xesam:artist:"):
                             artist = line.split("xesam:artist:", 1)[1].strip()
+                        elif line.startswith("mpris:artUrl:"):
+                            # file://, http(s):// or data: — the client puts
+                            # it in an <img> when present, 🎵 when absent.
+                            art_url = line.split("mpris:artUrl:", 1)[1].strip()
                         elif line.startswith("mpris:length:"):
                             l_val = line.split("mpris:length:", 1)[1].strip()
                             if l_val.isdigit():
@@ -170,6 +183,7 @@ class MediaManager:
                         "status": status,
                         "title": title or "Nessuna traccia",
                         "artist": artist or identity,
+                        "art_url": art_url,
                         "position": round(pos_sec, 1),
                         "length": round(length_sec, 1),
                         "volume": vol_percent,
@@ -187,7 +201,7 @@ class MediaManager:
 
     async def set_player_volume(self, service: str, volume_percent: int) -> bool:
         """Set player volume across both PipeWire audio streams and MPRIS."""
-        if not service.startswith("org.mpris.MediaPlayer2."):
+        if not service or not service.startswith("org.mpris.MediaPlayer2."):
             raise ValueError("Invalid MPRIS service name")
 
         volume_percent = max(0, min(150, int(volume_percent)))

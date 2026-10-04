@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import signal
 import urllib.parse
 from pathlib import Path
 from typing import Dict, Any, Set, Optional
@@ -84,6 +85,21 @@ class WebSocketClient:
             pass
 
 
+def _parse_bool(value: Any) -> bool:
+    """A bool from JSON that may arrive as bool, number or string.
+
+    `bool("false")` is True, so raw bool() is wrong for every string form.
+    True: True, 1, "1", "true", "yes", "on". Everything else is False.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return False
+
+
 class CyberDeckServer:
     def __init__(self):
         self.token = get_or_create_auth_token()
@@ -135,8 +151,12 @@ class CyberDeckServer:
 
         return _merge(base, local)
 
-    async def get_full_state(self) -> Dict[str, Any]:
-        audio_state = await self.audio.get_state()
+    async def get_full_state(self, audio_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        # `audio_state` is the fresh reading the event subscriber just took.
+        # Passing it in skips re-querying pactl for what was measured a
+        # moment ago; the 1 Hz loop passes nothing and reads everything.
+        if audio_state is None:
+            audio_state = await self.audio.get_state()
         players = await self.media.get_players()
         telemetry_state = await self.telemetry.get_telemetry()
         return {
@@ -150,7 +170,12 @@ class CyberDeckServer:
         }
 
     async def broadcast_state(self, state: Optional[Dict[str, Any]] = None):
-        full_payload = await self.get_full_state()
+        # `state` is the audio reading the subscriber just took: it travels
+        # into the payload instead of being thrown away and re-queried.
+        # Anything else still comes from a fresh read. Callers that have no
+        # fresh reading pass nothing, as the 1 Hz loop does.
+        audio_state = state if isinstance(state, dict) else None
+        full_payload = await self.get_full_state(audio_state=audio_state)
         payload = {
             "type": "state_update",
             **full_payload
@@ -175,7 +200,7 @@ class CyberDeckServer:
             success = await self.audio.toggle_source_mute(target)
             return {"success": success}
         elif action_type == "source_mute_set":
-            mute = bool(action_data.get("mute", False))
+            mute = _parse_bool(action_data.get("mute", False))
             success = await self.audio.set_source_mute(target, mute)
             return {"success": success}
         elif action_type == "source_volume_set":
@@ -188,7 +213,7 @@ class CyberDeckServer:
             success = await self.audio.toggle_sink_mute(target)
             return {"success": success}
         elif action_type == "sink_mute_set":
-            mute = bool(action_data.get("mute", False))
+            mute = _parse_bool(action_data.get("mute", False))
             success = await self.audio.set_sink_mute(target, mute)
             return {"success": success}
         elif action_type == "sink_volume_set":
@@ -198,7 +223,8 @@ class CyberDeckServer:
 
         # Global Audio Kill Switch
         elif action_type == "mute_all_mics":
-            mute_state = action_data.get("mute")
+            raw = action_data.get("mute")
+            mute_state = None if raw is None else _parse_bool(raw)
             res = await self.audio.mute_all_mics(mute_state)
             return {"success": True, "muted": res}
 
@@ -244,7 +270,11 @@ class CyberDeckServer:
             success = await self.system.set_power_profile(profile)
             return {"success": success}
         elif action_type == "performance_mode_set":
-            on = bool(action_data.get("on", False))
+            # Parsed, not coerced: `bool("false")` is True in Python, so a
+            # raw bool() here turned every string -- including "false",
+            # "0" and "off" -- into ON. That is a GPU switch; it gets a
+            # parser.
+            on = _parse_bool(action_data.get("on", False))
             success = await self.system.set_performance_mode(on)
             # Kept on the controller, not only in the reply: the page sends
             # over the WebSocket and never reads a reply, so a failure has
@@ -318,8 +348,10 @@ class CyberDeckServer:
             # `.get(status, "OK")` turned every rejected action into the literal
             # status line `HTTP/1.1 400 OK`. fetch() reads the code, so the browser
             # did not care; every other client and every log line did.
-            status_text = {200: "OK", 400: "Bad Request",
-                          401: "Unauthorized", 404: "Not Found"}
+            status_text = {200: "OK", 400: "Bad Request", 401: "Unauthorized",
+                           404: "Not Found", 405: "Method Not Allowed",
+                           413: "Content Too Large",
+                           500: "Internal Server Error"}
             h = {
                 "Content-Type": content_type,
                 "Content-Length": str(len(data)),
@@ -386,6 +418,19 @@ class CyberDeckServer:
             await writer.drain()
             return
 
+        if req_path in ("/icon.svg", "/favicon.ico"):
+            # The tab icon. index.html links `icon.svg` which resolves to
+            # `/icon.svg` from `/`; the manifest already uses
+            # `/static/icon.svg`. Both serve the same file, publicly like the
+            # other static assets: no secret in an icon.
+            i_path = STATIC_DIR / "icon.svg"
+            if i_path.exists():
+                send_response(200, "image/svg+xml", i_path.read_bytes())
+            else:
+                send_response(404, "text/plain", b"icon.svg not found")
+            await writer.drain()
+            return
+
         if req_path == "/sw.js":
             sw_path = STATIC_DIR / "sw.js"
             if sw_path.exists():
@@ -403,6 +448,17 @@ class CyberDeckServer:
         if req_path == "/api/state" and method == "GET":
             payload = await self.get_full_state()
             send_response(200, "application/json", json.dumps(payload).encode("utf-8"))
+            await writer.drain()
+            return
+
+        if ((req_path == "/api/state" and method != "GET")
+                or (req_path == "/api/action" and method != "POST")):
+            # Right path, wrong verb: 405, not 404. A POST to /api/state or
+            # a GET to /api/action used to read as "not found", which sent
+            # debugging down the wrong path.
+            send_response(405, "application/json",
+                          json.dumps({"error": "Method Not Allowed"}).encode("utf-8"),
+                          {"Allow": "GET, POST"})
             await writer.drain()
             return
 
@@ -437,10 +493,9 @@ class CyberDeckServer:
 
             header_part, rest = req_data.split(b"\r\n\r\n", 1)
             lines = header_part.decode("utf-8", errors="ignore").split("\r\n")
-            if not lines:
-                writer.close()
-                await writer.wait_closed()
-                return
+            # split() always returns at least [""], so `if not lines` could
+            # never fire. The real malformed case is a request line with
+            # fewer than two tokens, checked below.
 
             req_line = lines[0].split(" ")
             if len(req_line) < 2:
@@ -458,14 +513,19 @@ class CyberDeckServer:
             parsed_url = urllib.parse.urlparse(path)
             query_params = dict(urllib.parse.parse_qsl(parsed_url.query))
 
-            # WebSocket upgrade check
-            if headers.get("upgrade", "").lower() == "websocket":
+            # WebSocket upgrade check. The path matters: without it any path
+            # with `Upgrade: websocket` became a socket, and a plain
+            # `GET /ws` fell through to 404 with no hint. The client
+            # connects to /ws and only there.
+            if headers.get("upgrade", "").lower() == "websocket" and parsed_url.path == "/ws":
                 ws = WSConnection(ConnectionType.SERVER)
                 client = WebSocketClient(reader, writer, ws)
 
                 is_auth = self.check_auth(headers, query_params)
                 if not is_auth:
-                    writer.write(b"HTTP/1.1 401 Unauthorized\r\n\r\n")
+                    writer.write(b"HTTP/1.1 401 Unauthorized\r\n"
+                                 b"Content-Length: 0\r\n"
+                                 b"Connection: close\r\n\r\n")
                     await writer.drain()
                     writer.close()
                     await writer.wait_closed()
@@ -530,14 +590,30 @@ class CyberDeckServer:
                 finally:
                     await self.spectrum.remove_subscriber(client)
                     self.ws_clients.discard(client)
+                    # The close handshake, not a bare TCP close: this is what
+                    # WebSocketClient.close() exists for, and nothing called
+                    # it -- every exit path closed the writer directly.
                     try:
-                        writer.close()
-                        await writer.wait_closed()
+                        await client.close()
                     except Exception:
                         pass
                 return
 
-            content_len = int(headers.get("content-length", 0))
+            try:
+                content_len = int(headers.get("content-length", 0))
+            except ValueError:
+                content_len = 0
+            # No unbounded reads: a declared body larger than 1 MiB is
+            # refused before a byte of it is buffered. Local network only,
+            # but memory is memory.
+            if content_len > 1024 * 1024:
+                writer.write(b"HTTP/1.1 413 Content Too Large\r\n"
+                             b"Content-Length: 0\r\n"
+                             b"Connection: close\r\n\r\n")
+                await writer.drain()
+                writer.close()
+                await writer.wait_closed()
+                return
             body = rest
             while len(body) < content_len:
                 needed = content_len - len(body)
@@ -557,6 +633,19 @@ class CyberDeckServer:
                 await writer.wait_closed()
             except Exception:
                 pass
+
+    def reload_config(self) -> None:
+        """Re-read config.yaml + config.local.yaml without restarting.
+
+        Refreshes the launcher and macro tables in place, so editing them
+        no longer needs a service restart. Called on SIGHUP; see
+        `systemctl --user reload cyberdeck` and the ExecReload line in
+        src/systemd/cyberdeck.service.
+        """
+        self.config = self.load_config()
+        self.system.update_launchers(self.config.get("launchers", []))
+        self.media.update_macros(self.config.get("macros", []))
+        logger.info("configuration reloaded (launchers, macros)")
 
     async def run(self):
         backend_host = "127.0.0.1"
@@ -590,6 +679,11 @@ class CyberDeckServer:
         # pointing at a host that is not theirs. It is configuration now,
         # and the banner says so plainly when it is not set.
         magic_dns = self.config.get("server", {}).get("public_host", "").strip()
+        try:
+            loop = asyncio.get_running_loop()
+            loop.add_signal_handler(signal.SIGHUP, self.reload_config)
+        except (NotImplementedError, RuntimeError, OSError) as e:
+            logger.debug(f"SIGHUP reload not wired: {e}")
         print("=" * 64, flush=True)
         print("  CYBERDECK DASHBOARD v1.0 - VALIDATED HTTPS ACTIVE", flush=True)
         print("=" * 64, flush=True)
@@ -602,10 +696,32 @@ class CyberDeckServer:
         else:
             print("  Public URL   : not set (server.public_host in config.yaml)", flush=True)
             print(f"  Local URL    : http://127.0.0.1:{self.backend_port}/?token=<token>", flush=True)
+        if self.tailscale_ip and self.tailscale_ip != "127.0.0.1":
+            print(f"  Tailscale IP : {self.tailscale_ip}", flush=True)
         print("  TLS Status   : Validated Certificate (Let's Encrypt YE2)", flush=True)
         print("=" * 64, flush=True)
 
-        await asyncio.gather(*[s.serve_forever() for s in self.servers])
+        try:
+            await asyncio.gather(*[s.serve_forever() for s in self.servers])
+        finally:
+            await self.shutdown()
+
+    async def shutdown(self):
+        """Unhook everything run() hooked up.
+
+        Previously nothing called `SpectrumBroadcaster.cleanup()` or
+        `AudioManager.unregister_listener()` -- grep found only the
+        definitions -- so a SIGTERM left the cava child running. The
+        `finally` above is what calls this on every exit path.
+        """
+        try:
+            self.audio.unregister_listener(self.broadcast_state)
+        except Exception:
+            pass
+        try:
+            await self.spectrum.cleanup()
+        except Exception as e:
+            logger.debug(f"spectrum cleanup: {e}")
 
 if __name__ == "__main__":
     server = CyberDeckServer()

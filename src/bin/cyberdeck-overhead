@@ -55,7 +55,10 @@ measure() {
     # bar, web dashboard) and each one launches its own FFT analysis of
     # the same system stream. With two monitors the background starts
     # two.
-    cava_n="$(pgrep -c -f 'cava -p /dev/stdin' 2>/dev/null || echo 0)"
+    cava_n="$(pgrep -c -f 'cava -p /dev/stdin' 2>/dev/null || true)"
+    [ -z "$cava_n" ] && cava_n=0
+    cava_n="$(printf '%s' "$cava_n" | tr -cd '0-9')"
+    [ -z "$cava_n" ] && cava_n=0
     printf "  Analisi audio attive: %s\n" "$cava_n"
     if [ "$cava_n" -gt 2 ]; then
         printf "  %s  %s sopra le 2 previste: ognuna e' una FFT duplicata.%s\n" \

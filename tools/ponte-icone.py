@@ -125,6 +125,14 @@ PONTE: dict[str, tuple[str, str | None]] = {
     # source theme, so they are drawn rather than bridged: a switch is the
     # control the user is talking about, and it cannot be left to a guest
     # theme that has never heard of it.
+    #
+    # Correction, measured 2026-10-03: only `powered` is an icon request
+    # (`strings -e l org.kde.plasma.bluetooth.so` lists it alongside the
+    # network-bluetooth names). `switch` appears in the binary only as QML
+    # internals -- switchHeight, switchWidth, onSwitch,
+    # PlasmaComponents3.Switch -- never as an icon name, so there is
+    # nothing to draw for it and no PONTE entry.
+    "powered":                             ("Status", None),
     "network-bluetooth-symbolic":          ("Status", "network-bluetooth-symbolic"),
     "network-bluetooth-activated-symbolic": ("Status", "network-bluetooth-activated-symbolic"),
     "network-bluetooth-inactive-symbolic":  ("Status", "network-bluetooth-inactive-symbolic"),
@@ -222,7 +230,7 @@ def misura(svg: pathlib.Path, testo: str | None = None) -> float:
             subprocess.run(["rsvg-convert", "-w", "48", "-h", "48", "-b", PANNO,
                             str(src), "-o", str(out)],
                            check=True, capture_output=True, timeout=20)
-            from PIL import Image, ImageStat
+            from PIL import Image
             im = Image.open(out).convert("RGB")
             # Mean over the *drawn* pixels, not over the canvas.
             #
@@ -261,6 +269,24 @@ def foglia() -> str:
     C 5.0 11.0 5.6 8.4 7.4 6.4 C 6.2 9.0 5.8 11.0 6.4 13.5
     C 9.6 13.0 12.2 10.4 12.9 6.6 C 13.2 5.1 13.4 3.7 13.5 2.5 Z
     M 13.5 2.5 C 13.3 5.4 12.6 8.0 11.4 10.2 C 12.1 8.2 12.5 5.6 12.4 2.9 Z"/>
+</svg>
+"""
+
+
+def potenza() -> str:
+    """The power symbol, for the bluetooth applet's `powered` state. Drawn
+    here because no installed theme has it -- not Fluent, not breeze-dark,
+    not Adwaita -- and the applet asks for the bare name `powered`
+    (verified with `strings -e l` on its own plugin).
+
+    The IEC 5009 standby glyph: a broken circle with the line through the
+    gap. Stroke-based so it follows ColorScheme-Text like the rest.
+    """
+    return """<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <path class="ColorScheme-Text" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="
+    M 8.0 2.0 V 8.0
+    M 4.6 4.2 A 5.2 5.2 0 1 0 11.4 4.2"/>
 </svg>
 """
 
@@ -309,6 +335,8 @@ def main() -> int:
         sorgente = trova(alias) if alias else trova(nome)
         if sorgente is None and nome.endswith("powersave-symbolic"):
             testo = foglia()
+        elif sorgente is None and nome == "powered":
+            testo = potenza()
         elif sorgente is None:
             print(f"  {Y}!{OFF} {nome:38s} no artwork anywhere")
             salti += 1

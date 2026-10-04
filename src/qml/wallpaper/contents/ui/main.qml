@@ -37,43 +37,6 @@ WallpaperItem {
     readonly property int hudCustomY: (root.configuration && root.configuration.HudCustomY !== undefined)
         ? parseInt(root.configuration.HudCustomY) : 0
 
-    // Offset of the spectrum from the bottom edge. It has to clear the
-    // height of the Plasma panel, otherwise the axis's base and ticks
-    // end up underneath.
-    //
-    // It is not computable from the wallpaper: the panel is a
-    // "floating" containment with no ItemGeometries key, so its height
-    // cannot be read from the configuration. That is why it is a
-    // literal value and not a discovery.
-    //
-    // Kept although nothing reads it now that the analyser has moved to
-    // the widget, so that a configuration written by an older version
-    // still loads. The key is ignored, not the file: removing the
-    // property would make an existing setting a load-time error.
-    readonly property int spectrumInset: (root.configuration
-        && parseInt(root.configuration.SpectrumBottomInset) >= 0)
-        ? parseInt(root.configuration.SpectrumBottomInset) : 56
-
-    // Yielding to something else that animates.
-    //
-    // This is not the v1.0 performance mode. That one existed to switch
-    // off our own Matrix rain shader, which is gone, so it had nothing
-    // left to suppress. This one is the opposite: our animation is cheap
-    // (~2% of a core, GPU busy 1-3%) and somebody else's is not, so when
-    // the desktop runs an animated wallpaper on another screen we stop
-    // the spectrum and give the room over.
-    //
-    // The state arrives as a configuration key rather than through a
-    // watched file on purpose. Plasma pushes a configuration change into
-    // the plugin by itself, so this is reactive with no polling and no
-    // filesystem access from QML. The published signal for third-party
-    // wallpapers is a file, and that is a separate contract: see
-    // docs/CONTRATTO-resa.md.
-    readonly property bool performanceMode: (root.configuration
-        && root.configuration.PerformanceMode !== undefined)
-        ? (root.configuration.PerformanceMode === true
-           || root.configuration.PerformanceMode === "true") : false
-
     // Edge margin: it adapts to the resolution instead of being the
     // old fixed 24px, which on 768p was 3% and on 4K 1%. The
     // proportion is what keeps the visual frame constant.

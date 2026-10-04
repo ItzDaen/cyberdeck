@@ -8,8 +8,7 @@
 # after the unit is enabled.
 
 [Unit]
-Description=Poll for an animated wallpaper and yield the GPU to it
-Documentation=file://%h/Projects/cyberdeck/docs/CONTRATTO-resa.md
+Description=Reassert full tilt every 2s unless the user chose otherwise
 
 [Timer]
 OnBootSec=20s

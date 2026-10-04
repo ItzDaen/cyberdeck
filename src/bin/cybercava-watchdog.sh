@@ -9,7 +9,10 @@ if ! systemctl --user is-active --quiet cybercava-router.service; then
   systemctl --user restart cybercava-router.service
   fail=1
 fi
-CAVA_COUNT=$(pgrep -c -f "cava -p /dev/stdin" 2>/dev/null || echo 0)
+CAVA_COUNT=$(pgrep -c -f "cava -p /dev/stdin" 2>/dev/null || true)
+[ -z "$CAVA_COUNT" ] && CAVA_COUNT=0
+CAVA_COUNT=$(printf '%s' "$CAVA_COUNT" | tr -cd '0-9')
+[ -z "$CAVA_COUNT" ] && CAVA_COUNT=0
 # 4 expected (2 panels + 2 wallpapers), minimum 2 (panels)
 if [ "$CAVA_COUNT" -lt 2 ]; then
   echo "[$LOG_TAG] only $CAVA_COUNT cava processes, restarting plasmashell applets" | systemd-cat -t "$LOG_TAG" -p warning
@@ -28,7 +31,6 @@ if command -v pw-link >/dev/null 2>&1; then
     echo "[$LOG_TAG] zero cava links, router will reconnect on next heartbeat" | systemd-cat -t "$LOG_TAG" -p notice
   fi
 fi
-exit $fail
 
 # Deck topology v2.0 checks (appended 2026-09-26)
 for node in Discord Browser Main Virtual_Mic; do
@@ -52,3 +54,5 @@ if pgrep -x easyeffects >/dev/null 2>&1; then
     echo "[deck-topology] WARNING: default source is easyeffects_source (EE self-capture loop risk)" | systemd-cat -t cybercava-watchdog -p warning
   fi
 fi
+
+exit $fail

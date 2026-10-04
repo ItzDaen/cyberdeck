@@ -388,8 +388,6 @@ ButtonWidthMenu=18
 ButtonWidthKeepabove=18
 ButtonWidthKeepbelow=18
 ButtonWidthAlldesktops=18
-ButtonWidthHelp=18
-ButtonWidthAppMenu=18
 ExplicitButtonSpacer=0
 """
 

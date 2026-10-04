@@ -11,7 +11,6 @@ Kirigami.FormLayout {
     property alias cfg_HudCustomY: customYSpin.value
     property alias cfg_HudWidth: widthSpin.value
     property alias cfg_HudHeight: heightSpin.value
-    property alias cfg_SpectrumBottomInset: spectrumInsetSpin.value
 
     QQC2.CheckBox {
         id: showHudCheck
@@ -67,13 +66,5 @@ Kirigami.FormLayout {
         from: 260
         to: 750
         stepSize: 10
-    }
-
-    QQC2.SpinBox {
-        id: spectrumInsetSpin
-        Kirigami.FormData.label: "Audio spectrum — distance from the panel (px):"
-        from: 0
-        to: 200
-        stepSize: 2
     }
 }

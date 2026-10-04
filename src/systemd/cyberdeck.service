@@ -10,6 +10,10 @@ Type=simple
 # repository that only installs for its author is a script with a .git
 # extension.
 ExecStart=/usr/bin/python3 %h/.local/share/cyberdeck/server.py
+# Config reload without restart: `systemctl --user reload cyberdeck`
+# sends SIGHUP, the server re-reads config.yaml + config.local.yaml and
+# refreshes the launcher/macro tables in place.
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1

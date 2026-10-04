@@ -1,2 +1,7 @@
 singleton Theme 1.0 Theme.qml
 AudioSpectrum 1.0 AudioSpectrum.qml
+TelemetryHUD 1.0 TelemetryHUD.qml
+Readout 1.0 Readout.qml
+MeterRow 1.0 MeterRow.qml
+SegmentBar 1.0 SegmentBar.qml
+ThreadCell 1.0 ThreadCell.qml

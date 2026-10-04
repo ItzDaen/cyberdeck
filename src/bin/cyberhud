@@ -74,7 +74,6 @@ DEFAULTS = {
     "HudCustomY": "0",
     "HudWidth": "460",
     "HudHeight": "440",
-    "SpectrumBottomInset": "56",
     "PerformanceMode": "false",
 }
 
@@ -82,7 +81,6 @@ DEFAULTS = {
 LIMITS = {
     "HudWidth": (300, 1400),
     "HudHeight": (220, 1100),
-    "SpectrumBottomInset": (0, 200),
 }
 
 BACKUP_DIR = Path.home() / ".cache" / "cyberdeck-deploy"
@@ -544,9 +542,10 @@ def set_performance(state: bool, manual: bool, quiet: bool = False) -> bool:
 
     changed = False
     value = "true" if state else "false"
-    targets = sorted(read_screen_wallpapers(), key=int)
+    screens = read_screen_wallpapers()
+    targets = sorted(screens, key=int)
     ours = [cid for cid in targets
-            if read_screen_wallpapers().get(cid) == WALLPAPER_PLUGIN]
+            if screens.get(cid) == WALLPAPER_PLUGIN]
 
     for cid in ours:
         if get_keys(cid).get("PerformanceMode", "false") != value:
@@ -582,6 +581,11 @@ def set_performance(state: bool, manual: bool, quiet: bool = False) -> bool:
         YIELD_FILE.unlink(missing_ok=True)
 
     if ours:
+        # The PerformanceMode key in the plugin's own config group. Nothing
+        # in QML reads it anymore -- the panel watches the yield file
+        # itself, once a second -- but it is still written and read back
+        # here: it is this function's own change detection, so a timer
+        # pass that changes nothing writes nothing and takes no backup.
         set_keys(WALLPAPER_GROUP_RE, {"PerformanceMode": value}, set(ours))
 
     if not quiet:
@@ -650,20 +654,29 @@ def cmd_performance(args) -> None:
         # Quiet, because the two lines below already say what happened.
         # Unquiet printed "nothing to do" and then "performance mode ON"
         # one after the other, which is not a state a reader can hold.
-        set_performance(True, manual=True, quiet=True)
-        ok("performance mode ON: the GPU goes to the game, both screens")
-        set_gpu_free(True, quiet=args.quiet)
+        changed_perf = set_performance(True, manual=True, quiet=True)
+        changed_gpu = set_gpu_free(True, quiet=args.quiet)
+        if changed_perf or changed_gpu:
+            ok("performance mode ON: the GPU goes to the game, both screens")
+        else:
+            info("performance mode already ON")
         avvisa_se_non_preso()
     elif azione in ("off", "disable", "0"):
-        set_performance(False, manual=True, quiet=True)
-        ok("performance mode OFF: the animated wallpapers come back")
-        set_gpu_free(False, quiet=args.quiet)
+        changed_perf = set_performance(False, manual=True, quiet=True)
+        changed_gpu = set_gpu_free(False, quiet=args.quiet)
+        if changed_perf or changed_gpu:
+            ok("performance mode OFF: the animated wallpapers come back")
+        else:
+            info("performance mode already OFF")
         avvisa_se_non_preso()
     elif azione in ("toggle",):
         stato = not YIELD_FILE.exists()
-        set_performance(stato, manual=True, quiet=True)
-        set_gpu_free(stato, quiet=args.quiet)
-        ok("performance mode " + ("ON" if YIELD_FILE.exists() else "OFF"))
+        changed_perf = set_performance(stato, manual=True, quiet=True)
+        changed_gpu = set_gpu_free(stato, quiet=args.quiet)
+        if changed_perf or changed_gpu:
+            ok("performance mode " + ("ON" if YIELD_FILE.exists() else "OFF"))
+        else:
+            info("performance mode unchanged")
         avvisa_se_non_preso()
     elif azione in ("auto", "automatic", "detect"):
         # The way back. Without it the manual override is a one-way door:
@@ -982,10 +995,27 @@ def set_widget_geometry(cid: str, resolution: str, applet: str,
         return False
     nuovo = f"{chiave}=" + ";".join(parti) + ";"
     text = text[:m.start()] + nuovo + text[m.end():]
-    # The horizontal twin is the same list, and Plasma reads it on some
-    # layouts; leaving it stale is how two copies of a position appear.
-    text = re.sub(r"^ItemGeometriesHorizontal=.*$",
-                  f"ItemGeometriesHorizontal=" + ";".join(parti) + ";",
+    # The horizontal twin holds the same applet entries for layouts that
+    # read it. Update only this applet's entry in place: replacing the
+    # whole line with this screen's list would overwrite other screens'
+    # geometries on multi-monitor desktops with different resolutions.
+    def _aggiorna_orizzontale(mm: re.Match[str]) -> str:
+        globale = [p for p in mm.group(1).split(";") if p.strip()]
+        for i, p in enumerate(globale):
+            if not p.startswith(f"Applet-{applet}:"):
+                continue
+            campi = p.split(":")[1].split(",")
+            campi[0] = str(x)
+            campi[1] = str(y)
+            if w is not None and len(campi) > 2:
+                campi[2] = str(w)
+            if h is not None and len(campi) > 3:
+                campi[3] = str(h)
+            globale[i] = f"Applet-{applet}:" + ",".join(campi)
+            break
+        return "ItemGeometriesHorizontal=" + ";".join(globale) + ";"
+    text = re.sub(r"^ItemGeometriesHorizontal=(.*)$",
+                  _aggiorna_orizzontale,
                   text, flags=re.M)
     APPLETSRC.write_text(text, encoding="utf-8")
     return True
@@ -1163,7 +1193,12 @@ def cmd_place(args) -> None:
         return
 
     x, y = args.xy
-    larghezza, altezza = args.dimensioni if args.dimensioni else (None, None)
+    dims = args.dimensioni or []
+    if len(dims) not in (0, 1, 2):
+        fail(f"size takes at most W H, got {len(dims)} values. Use: cyberhud place [WIDGET] [-s N] X Y [W H]")
+        return
+    larghezza = dims[0] if len(dims) >= 1 else None
+    altezza = dims[1] if len(dims) >= 2 else None
     if set_widget_geometry(cid, res, applet, x, y, larghezza, altezza):
         ok(f"{cosa} -> x={x} y={y}"
            + (f" {larghezza}x{altezza}" if larghezza else "")
@@ -1287,7 +1322,6 @@ def cmd_status(args) -> None:
               + (f"  ({cfg.get('HudCustomX')}, {cfg.get('HudCustomY')})"
                  if cfg.get("HudPosition") == "custom" else ""))
         print(f"    size       {cfg.get('HudWidth', '?')} x {cfg.get('HudHeight', '?')} px")
-        print(f"    spectrum   {cfg.get('SpectrumBottomInset', '?')} px from the panel")
 
     print()
     cache = Path.home() / ".cache"

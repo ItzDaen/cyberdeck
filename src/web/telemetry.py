@@ -22,7 +22,6 @@ class TelemetryManager:
         self._last_net_time = 0.0
         self._last_disk_io = None
         self._last_disk_time = 0.0
-        self._cached_telemetry: Dict[str, Any] = {}
         self._boot_time = psutil.boot_time()
         self._cached_power_profile = "balanced"
         self._last_profile_check = 0.0
@@ -317,7 +316,11 @@ class TelemetryManager:
         uptime_sec = int(now - self._boot_time)
         process_count = len(psutil.pids())
 
-        self._cached_telemetry = {
+        # No memoization on purpose: rates (disk, network) are deltas
+        # between this call and the previous one, so every call recomputes.
+        # The old `_cached_telemetry` field suggested a cache that never
+        # hit -- it was written and returned, never read back.
+        return {
             "timestamp": now,
             "cpu": {
                 "percent": cpu_percent,
@@ -378,5 +381,3 @@ class TelemetryManager:
                 "de": "KDE Plasma 6 (Wayland)"
             }
         }
-
-        return self._cached_telemetry

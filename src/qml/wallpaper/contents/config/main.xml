@@ -30,13 +30,5 @@
       <label>HUD Height</label>
       <default>440</default>
     </entry>
-    <entry name="SpectrumBottomInset" type="Int">
-      <label>Audio spectrum bottom inset (px above the panel)</label>
-      <default>56</default>
-    </entry>
-    <entry name="PerformanceMode" type="Bool">
-      <label>Yield to other animated wallpapers (stop the audio spectrum)</label>
-      <default>false</default>
-    </entry>
   </group>
 </kcfg>

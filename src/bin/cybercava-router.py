@@ -119,7 +119,7 @@ class CavaAudioRouter:
             if in_id in cava_ids:
                 out_name = port_names.get(out_id, "")
                 if "cava:input" not in out_name and ":monitor_" not in out_name and "monitor_FL" not in out_name and "monitor_FR" not in out_name:
-                    subprocess.run(["pw-link", "-d", str(out_id), str(in_id)], capture_output=True)
+                    subprocess.run(["pw-link", "-d", str(out_id), str(in_id)], capture_output=True, timeout=5.0)
                     logger.info(f"[MicGuard] Disconnected mic source {out_name} from CAVA.")
                     current_links.discard((out_id, in_id))
 
@@ -131,7 +131,7 @@ class CavaAudioRouter:
             in_name = port_names.get(in_id, "")
             if in_name.startswith("virtual_mic_capture:input_"):
                 out_name = port_names.get(out_id, "")
-                subprocess.run(["pw-link", "-d", str(out_id), str(in_id)], capture_output=True)
+                subprocess.run(["pw-link", "-d", str(out_id), str(in_id)], capture_output=True, timeout=5.0)
                 logger.warning(f"[VmicGuard] Removed link {out_name} -> {in_name} (Virtual_Mic must stay silent).")
                 current_links.discard((out_id, in_id))
 
@@ -140,7 +140,7 @@ class CavaAudioRouter:
         for mon_id in active_fl:
             for cava_id in cava_inputs_fl:
                 if (mon_id, cava_id) not in current_links:
-                    p = subprocess.run(["pw-link", str(mon_id), str(cava_id)], capture_output=True)
+                    p = subprocess.run(["pw-link", str(mon_id), str(cava_id)], capture_output=True, timeout=5.0)
                     if p.returncode == 0:
                         created += 1
 
@@ -148,7 +148,7 @@ class CavaAudioRouter:
         for mon_id in active_fr:
             for cava_id in cava_inputs_fr:
                 if (mon_id, cava_id) not in current_links:
-                    p = subprocess.run(["pw-link", str(mon_id), str(cava_id)], capture_output=True)
+                    p = subprocess.run(["pw-link", str(mon_id), str(cava_id)], capture_output=True, timeout=5.0)
                     if p.returncode == 0:
                         created += 1
 
@@ -281,13 +281,13 @@ class CavaAudioRouter:
                         continue
                     if ":playback_" in in_name:
                         p = subprocess.run(["pw-link", "-d", str(sport), str(in_id)],
-                                           capture_output=True)
+                                           capture_output=True, timeout=5.0)
                         if p.returncode == 0:
                             changed += 1
                             logger.info(f"[HW] Unlinked stale {stream}:output_{ch} -> {in_name}")
                 # Ensure link to current hardware
                 if hw_port not in links.get(sport, set()):
-                    p = subprocess.run(["pw-link", str(sport), str(hw_port)], capture_output=True)
+                    p = subprocess.run(["pw-link", str(sport), str(hw_port)], capture_output=True, timeout=5.0)
                     if p.returncode == 0:
                         changed += 1
         return changed

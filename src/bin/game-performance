@@ -66,7 +66,12 @@ fi
 YIELD_MANUAL="$HOME/.cache/cyberdeck/yield-manual"
 
 LOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}/cyberhud_game_lock"
-mkdir -p "$LOCK_DIR" 2>/dev/null
+LOCK_OK=0
+if mkdir -p "$LOCK_DIR" 2>/dev/null && [ -d "$LOCK_DIR" ] && [ -w "$LOCK_DIR" ]; then
+    LOCK_OK=1
+else
+    echo "game-performance: cannot write $LOCK_DIR, running without game lock" >&2
+fi
 PID_FILE="$LOCK_DIR/$$"
 
 # Did the user set performance mode by hand before this game started? If so
@@ -76,9 +81,29 @@ if [ -f "$YIELD_MANUAL" ]; then
     GAVE_UP_CONTROL=1
     echo "game-performance: performance mode was set by hand, leaving it" >&2
 else
-    touch "$PID_FILE" 2>/dev/null
+    if [ "$LOCK_OK" -eq 1 ]; then
+        touch "$PID_FILE" 2>/dev/null || LOCK_OK=0
+    fi
     "$HUD" performance on >/dev/null 2>&1
 fi
+
+# Remove lockfiles whose process is gone. Without this a SIGKILLed game
+# leaves its PID file behind and `remaining` never reaches 0, so
+# performance mode stays ON until someone runs `performance auto` by hand.
+potatura_orfani() {
+    [ "$LOCK_OK" -eq 1 ] || return 0
+    local f p
+    for f in "$LOCK_DIR"/*; do
+        [ -e "$f" ] || continue
+        p=$(basename "$f")
+        case "$p" in
+            ''|*[!0-9]*) rm -f "$f" 2>/dev/null; continue ;;
+        esac
+        if ! kill -0 "$p" 2>/dev/null; then
+            rm -f "$f" 2>/dev/null
+        fi
+    done
+}
 
 cleanup() {
     if [ "$GAVE_UP_CONTROL" -eq 1 ]; then
@@ -89,12 +114,25 @@ cleanup() {
 
     rm -f "$PID_FILE" 2>/dev/null
 
+    if [ "$LOCK_OK" -eq 1 ]; then
+        potatura_orfani
+    fi
+
     # Another game may still be running: only the last one out turns the
     # desktop back.
-    local remaining
-    remaining=$(find "$LOCK_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l)
+    local remaining=0
+    if [ "$LOCK_OK" -eq 1 ]; then
+        remaining=$(find "$LOCK_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l)
+    fi
     if [ "$remaining" -eq 0 ]; then
         # `auto`, not `off`: hands-off again, and it gives the wallpaper back.
+        #
+        # Known limit, stated not hidden: if the user ran `performance on`
+        # by hand mid-game, this still hands back. Our own `performance on`
+        # writes the same marker file, and the marker carries no timestamp,
+        # so ours and theirs are indistinguishable at exit. Leaving the mode
+        # on when the game that asked for it is gone would be the worse
+        # failure; re-enabling by hand is one command.
         "$HUD" performance auto >/dev/null 2>&1
     fi
 }

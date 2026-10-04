@@ -2,8 +2,14 @@
 # CyberDeck Workstation Configuration v2.0
 server:
   port: 8765
-  bind_tailscale_only: true
-  enable_auth: true
+  # Security posture is fixed, not configurable: the backend binds
+  # 127.0.0.1 only and every route but the static assets requires the
+  # token. There used to be `bind_tailscale_only` and `enable_auth` keys
+  # here, and nothing read them -- the code bound localhost and enforced
+  # auth unconditionally. A flag that promises a switch and has no wiring
+  # is worse than no flag: it lets a reader believe exposure is a config
+  # edit away, in either direction. Exposure is a Caddy decision, made in
+  # the Caddyfile, not here.
   # The address you reach this deck on, without the scheme. A Tailscale
   # MagicDNS name if that is how you get to it, a hostname, whatever.
   # Only used for the banner printed at startup and for the certificate
