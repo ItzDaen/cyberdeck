@@ -43,6 +43,17 @@
 #    auto` is the way back — it clears the marker, hands the wallpaper back
 #    and says what is animating.
 #
+# 4. It could not tell its own marker from the user's. `performance on`
+#    writes the manual marker, so a second game starting while the first
+#    runs found the marker and gave up with "set by hand" -- even though
+#    no hand was involved -- and stayed out of the refcount entirely.
+#    Worse, every refusal and every handoff was silent (`>/dev/null`),
+#    so a desktop that stopped yielding to games looked exactly like a
+#    desktop whose wrapper was never called. The fix is an ownership
+#    file next to the PID files: a mode the wrapper took is handed back
+#    by the last wrapper out, and only a mode nobody's wrapper owns is
+#    left alone. Plus a log, so the next diagnosis takes seconds.
+#
 # Neither this wrapper nor /usr/bin/game-performance was in the repository,
 # which is why all three survived. It lives in src/bin/ now, and
 # sync-packages.sh installs it like the other binaries.
@@ -65,6 +76,14 @@ fi
 # read it from there, do not copy the string.
 YIELD_MANUAL="$HOME/.cache/cyberdeck/yield-manual"
 
+# Who owns the current mode: a wrapper's, or nobody's. `performance on`
+# writes the same manual marker whether a game or a hand asked for it,
+# so the marker alone cannot tell them apart. This file can: it exists
+# only while at least one wrapper instance holds the mode. A mode with
+# this file is handed back by the last wrapper out; a mode without it
+# is the user's and is never touched.
+OWNED_MARKER_NAME="owned-by-games"
+
 LOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}/cyberhud_game_lock"
 LOCK_OK=0
 if mkdir -p "$LOCK_DIR" 2>/dev/null && [ -d "$LOCK_DIR" ] && [ -w "$LOCK_DIR" ]; then
@@ -74,22 +93,38 @@ else
 fi
 PID_FILE="$LOCK_DIR/$$"
 
-# Did the user set performance mode by hand before this game started? If so
-# this wrapper has no business changing it, in either direction.
-GAVE_UP_CONTROL=0
-if [ -f "$YIELD_MANUAL" ]; then
-    GAVE_UP_CONTROL=1
-    echo "game-performance: performance mode was set by hand, leaving it" >&2
-else
-    if [ "$LOCK_OK" -eq 1 ]; then
-        touch "$PID_FILE" 2>/dev/null || LOCK_OK=0
+LOG_FILE="$HOME/.cache/cyberdeck/game-performance.log"
+log() {
+    # Best-effort and silent: logging must never break a game launch.
+    { printf '%s pid=%s %s\n' "$(date '+%F %T')" "$$" "$*" >>"$LOG_FILE"; } 2>/dev/null
+    if [ -f "$LOG_FILE" ] && [ "$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)" -gt 131072 ]; then
+        { tail -n 400 "$LOG_FILE" >"$LOG_FILE.tmp" && mv -f "$LOG_FILE.tmp" "$LOG_FILE"; } 2>/dev/null
     fi
-    "$HUD" performance on >/dev/null 2>&1
-fi
+    return 0
+}
+
+# Live game PIDs holding the mode. The ownership file itself is not a
+# PID and is never counted here.
+pids_vivi() {
+    [ "$LOCK_OK" -eq 1 ] || return 0
+    local f p
+    for f in "$LOCK_DIR"/*; do
+        [ -e "$f" ] || continue
+        p=$(basename "$f")
+        case "$p" in
+            ''|*[!0-9]*) continue ;;
+        esac
+        if kill -0 "$p" 2>/dev/null; then
+            printf '%s\n' "$p"
+        fi
+    done
+}
 
 # Remove lockfiles whose process is gone. Without this a SIGKILLed game
-# leaves its PID file behind and `remaining` never reaches 0, so
-# performance mode stays ON until someone runs `performance auto` by hand.
+# leaves its PID file behind. Stale files no longer break the count --
+# pids_vivi checks liveness -- but they would pile up forever, so they
+# still go. The ownership file is not a PID file and is never touched
+# here; it is created and removed only together with a handoff.
 potatura_orfani() {
     [ "$LOCK_OK" -eq 1 ] || return 0
     local f p
@@ -97,7 +132,9 @@ potatura_orfani() {
         [ -e "$f" ] || continue
         p=$(basename "$f")
         case "$p" in
-            ''|*[!0-9]*) rm -f "$f" 2>/dev/null; continue ;;
+            ''|*[!0-9]*)
+                [ "$p" = "$OWNED_MARKER_NAME" ] || rm -f "$f" 2>/dev/null
+                continue ;;
         esac
         if ! kill -0 "$p" 2>/dev/null; then
             rm -f "$f" 2>/dev/null
@@ -105,24 +142,57 @@ potatura_orfani() {
     done
 }
 
-cleanup() {
-    if [ "$GAVE_UP_CONTROL" -eq 1 ]; then
-        # Not ours to undo.
-        [ -n "${PID_FILE:-}" ] && rm -f "$PID_FILE" 2>/dev/null
-        return 0
+# Three states, decided in this order. Reaping runs first so a crashed
+# wrapper's leftovers never read as somebody's game.
+#
+# - no marker: nobody holds the mode. Take it (PID file, ownership
+#   file, `performance on`) and hand it back at exit.
+# - marker, and (ownership file or a live game): another wrapper holds
+#   it, or held it and crashed. Join it: take a PID file and share the
+#   handoff. This is the case the old code got wrong -- it read its own
+#   marker as the user's hand and stayed out of the count, so the mode
+#   it had set was never handed back by anyone.
+# - marker, nothing wrapper-shaped anywhere: the user set it by hand.
+#   Not ours to change, in either direction.
+MODO=ignoto
+potatura_orfani
+if [ ! -f "$YIELD_MANUAL" ]; then
+    MODO=nostro
+    if [ "$LOCK_OK" -eq 1 ]; then
+        touch "$PID_FILE" 2>/dev/null || LOCK_OK=0
+        [ "$LOCK_OK" -eq 1 ] && touch "$LOCK_DIR/$OWNED_MARKER_NAME" 2>/dev/null
     fi
+    "$HUD" performance on >/dev/null 2>&1
+    log "start mode=ours (took it)"
+elif [ -f "$LOCK_DIR/$OWNED_MARKER_NAME" ] || [ -n "$(pids_vivi)" ]; then
+    MODO=condiviso
+    if [ "$LOCK_OK" -eq 1 ]; then
+        touch "$PID_FILE" 2>/dev/null || true
+    fi
+    log "start mode=shared (joining another game)"
+else
+    MODO=manuale
+    log "start mode=manual (leaving it alone)"
+    echo "game-performance: performance mode was set by hand, leaving it" >&2
+fi
 
+cleanup() {
     rm -f "$PID_FILE" 2>/dev/null
 
     if [ "$LOCK_OK" -eq 1 ]; then
         potatura_orfani
     fi
 
-    # Another game may still be running: only the last one out turns the
-    # desktop back.
+    # Only a mode this wrapper owns or shares is handed back, and only
+    # by the last one out. A manual mode returns here untouched.
+    if [ "$MODO" = "manuale" ]; then
+        log "exit mode=manual (nothing to hand back)"
+        return 0
+    fi
+
     local remaining=0
     if [ "$LOCK_OK" -eq 1 ]; then
-        remaining=$(find "$LOCK_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l)
+        remaining=$(pids_vivi | wc -l)
     fi
     if [ "$remaining" -eq 0 ]; then
         # `auto`, not `off`: hands-off again, and it gives the wallpaper back.
@@ -134,6 +204,10 @@ cleanup() {
         # on when the game that asked for it is gone would be the worse
         # failure; re-enabling by hand is one command.
         "$HUD" performance auto >/dev/null 2>&1
+        rm -f "$LOCK_DIR/$OWNED_MARKER_NAME" 2>/dev/null
+        log "exit last out, handed back"
+    else
+        log "exit $remaining still in, leaving it"
     fi
 }
 

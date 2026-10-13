@@ -369,8 +369,8 @@ BorderRight=1
 BorderBottom=1
 BorderTop=0
 
-PaddingLeft=10
-PaddingRight=10
+PaddingLeft=2
+PaddingRight=2
 PaddingTop=0
 PaddingBottom=0
 

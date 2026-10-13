@@ -386,20 +386,31 @@ def set_barra() -> str:
     """widgets/scrollbar — the scrollbar.
 
     Plasma asks for `background-vertical` and `background-horizontal`,
-    and for the handle a prefix that depends on `interactive` and
-    `pressed`. A 3px track with no arrows and no nubbins, as in the
+    and for the handle the plain prefixes `slider` and
+    `mouseover-slider` -- not oriented names. A set with only
+    `slider-horizontal` families paints the groove and no thumb: the
+    handle request matches nothing and the thumb is invisible, the
+    same defect as the missing viewitem selection. The oriented
+    families stay as inert extras; the hint is renamed to the name
+    ScrollBar.qml actually measures (`hint-scrollbar-size`).
+    A 3px track with no arrows and no nubbins, as in the
     panel theme: a scrollbar is not content, it is chrome.
     """
     parti = [
         _fascia("background-vertical", LATO, 3),
         _fascia("background-horizontal", LATO, 3),
+        _famiglia("slider", riempimento=ALTO, bordo=None, raggio=1),
+        _famiglia("mouseover-slider", riempimento=ACCENTO, bordo=None,
+                  raggio=1),
         _fascia("slider-vertical", 3, LATO, colore=ALTO, raggio=1),
         _fascia("slider-horizontal", LATO, 3, colore=ALTO, raggio=1),
         _fascia("slider-vertical-hover", 3, LATO, colore=ACCENTO, raggio=1),
         _fascia("slider-horizontal-hover", LATO, 3, colore=ACCENTO, raggio=1),
     ]
     return guscio("\n".join(parti),
-                  extra_defs=f'\n    <rect id="hint-slider-size" x="0" y="0" '
+                  extra_defs=f'\n    <rect id="hint-scrollbar-size" x="0" y="0" '
+                             f'width="3" height="3" {NASCOSTO}/>\n'
+                             f'\n    <rect id="hint-slider-size" x="0" y="0" '
                              f'width="3" height="3" {NASCOSTO}/>\n'
                              f'    <g id="arrow-up"><rect x="0" y="0" width="1" '
                              f'height="1" {NASCOSTO}/></g>')
@@ -537,10 +548,18 @@ def set_voce() -> str:
     that starts with `section`. Selection is a full background: in a
     scrolling list a border follows the mouse and makes the list look
     like a run of boxes.
+
+    `pressed` is the same bug viewitem had: DefaultListItemBackground
+    asks for it whenever the entry is highlighted or down
+    (`control.highlighted || control.down ? "pressed" : "normal"`),
+    with no fallback array. Without the family a highlighted row loses
+    its background the same way a clicked desktop icon lost its
+    highlight.
     """
     return guscio("\n".join([
         _famiglia("normal", riempimento=FONDO, bordo=None),
         _famiglia("hover", riempimento=ALTO, bordo=None),
+        _famiglia("pressed", riempimento=ACCENTO, bordo=None),
         _famiglia("section", riempimento=FONDO, bordo=None),
         _famiglia("separator", riempimento=None, bordo=None),
         f'<g id="separator"><rect x="0" y="{LATO // 2}" width="{LATO}" '
@@ -571,10 +590,22 @@ def set_strumento() -> str:
 
 
 def set_riquadro_voce() -> str:
-    """widgets/viewitem — an entry in a view."""
+    """widgets/viewitem — an entry in a view.
+
+    PlasmaExtras.Highlight asks for four families, and the two that
+    matter only exist while something is chosen: `normal`, `hover`,
+    `selected` and `selected+hover`. A set with only the first two
+    renders the highlight fine until the click, and then nothing at
+    all -- the selection looks as if it was never inserted, which is
+    exactly how a missing family presents. Selected is the model's
+    own selection colour, full amber: that is what Selection means
+    everywhere else in this theme.
+    """
     return guscio("\n".join([
         _famiglia("normal", riempimento=FONDO, bordo=None),
         _famiglia("hover", riempimento=ALTO, bordo=ACCENTO),
+        _famiglia("selected", riempimento=ACCENTO, bordo=None),
+        _famiglia("selected+hover", riempimento=ACCENTO, bordo=TESTO),
     ]))
 
 
@@ -606,13 +637,24 @@ def set_misura() -> str:
 
     Like the panel's progress bar: dim track, lit charge, and the same
     thresholds.
+
+    Both families have to be nine-slice sets, not single groups: the
+    only consumer, PlasmaComponents3.ProgressBar (which is also what
+    the volume/brightness OSD draws), reads them through
+    KSvg.FrameSvgItem with the prefixes `bar-active` and
+    `bar-inactive`. Single `<g id="bar-active">` elements are not
+    frames, so the meter painted nothing at all -- the OSD showed the
+    icon and the percentage with no bar between them, the same defect
+    as the missing viewitem selection. The track is the background
+    colour itself, so it reads as a groove cut into the popup rather
+    than as a second bar competing with the charge.
     """
     return guscio("\n".join([
-        _fascia("bar-inactive", LATO, 3, colore=SPENTO, raggio=1),
-        _fascia("bar-active", LATO, 3, colore=ACCENTO, raggio=1),
+        _famiglia("bar-inactive", riempimento=FONDO, bordo=None, raggio=1),
+        _famiglia("bar-active", riempimento=ACCENTO, bordo=None, raggio=1),
     ]),
-        extra_defs=f'\n    <rect id="hint-bar-size" x="0" y="0" width="2" '
-                   f'height="2" {NASCOSTO}/>')
+        extra_defs=f'\n    <rect id="hint-bar-size" x="0" y="0" width="16" '
+                   f'height="3" {NASCOSTO}/>')
 
 
 def set_frecce() -> str:

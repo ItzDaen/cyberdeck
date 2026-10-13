@@ -246,7 +246,14 @@
       });
     }
     if (viewportContent) {
-      viewportContent.scrollTop = 0;
+      // Reset the scroller that actually scrolls. That used to be
+      // `viewportContent.scrollTop = 0`, which moves nothing: the parent
+      // is overflow:hidden and each tab scrolls inside its own box, so
+      // switching tabs kept the old tab's scroll depth on the new one.
+      const scroller = tabKey === 'workstation'
+        ? viewportContent
+        : viewportContent.querySelector('.tab-view.active');
+      if (scroller) scroller.scrollTop = 0;
     }
   }
 

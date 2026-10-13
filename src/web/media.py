@@ -152,9 +152,16 @@ class MediaManager:
                         elif line.startswith("xesam:artist:"):
                             artist = line.split("xesam:artist:", 1)[1].strip()
                         elif line.startswith("mpris:artUrl:"):
-                            # file://, http(s):// or data: — the client puts
-                            # it in an <img> when present, 🎵 when absent.
-                            art_url = line.split("mpris:artUrl:", 1)[1].strip()
+                            # Only URLs the browser can actually fetch. In
+                            # practice players report file:// paths, which
+                            # load nowhere except the local machine itself
+                            # -- on the phone that is a broken-image icon.
+                            # http(s) and embedded data: pass through;
+                            # anything else becomes absent and the client
+                            # shows its note glyph instead.
+                            candidate = line.split("mpris:artUrl:", 1)[1].strip()
+                            if candidate.startswith(("http://", "https://", "data:")):
+                                art_url = candidate
                         elif line.startswith("mpris:length:"):
                             l_val = line.split("mpris:length:", 1)[1].strip()
                             if l_val.isdigit():

@@ -141,7 +141,11 @@ body {
 .cyberdeck-app {
     display: flex;
     flex-direction: column;
+    /* 100dvh tracks the visible height on mobile browsers whose
+    chrome shows and hides; plain %/vh stay as fallback. */
     height: 100%;
+    height: 100vh;
+    height: 100dvh;
     background:
 /* Light from the corner, below the threshold of conscious perception:
 it is what makes the background read as a surface rather than as fill. */
@@ -344,6 +348,11 @@ every second it is the difference between a dashboard and a gauge. */
    ═══════════════════════════════════════════════════════════════════════════ */
 .viewport-content {
     flex: 1 1 auto;
+/* min-height: 0 lets the flex item actually shrink. Without it the
+default min-height:auto keeps the tallest content height, and on
+short viewports the footer and bottom nav get pushed out of the
+box instead of the tab scrolling inside it. */
+    min-height: 0;
     overflow: hidden;
     position: relative;
 }
@@ -355,6 +364,10 @@ every second it is the difference between a dashboard and a gauge. */
     overflow-y: auto;
     overflow-x: hidden;
     padding: var(--pad);
+/* A tab's own scroll chain ends here: without containment, scrolling
+past the end hands the gesture to the page (which has nowhere to go)
+and on touch devices to the browser chrome. */
+    overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
 }
 
@@ -1265,6 +1278,44 @@ it ended up clipped by the border. */
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   SCRIVANIA: GRIGLIA VERA
+   Fino a qui il desktop era le stesse colonne del telefono, solo più
+   larghe: due riquadri asimmetrici affiancati e griglie auto-fit che
+   finivano a macchia di leopardo. Una scrivania vera assegna lo spazio
+   per importanza, non per ordine di arrivo: l'audio sta su tre colonne
+   uguali (fader, controllo, sessione/alimentazione) e le schede
+   hardware occupano tre colonne uguali sopra i 1500px, due tra 1024 e
+   1500. Sotto i 1024px (o in vista mobile) resta l'auto-fit a colonna
+   singola di prima: queste regole valgono solo in .view-desktop.
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 1024px) {
+    .view-desktop .audio-workspace {
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+    .view-desktop .audio-left-col { grid-column: span 4; }
+    .view-desktop .audio-mid-col { grid-column: span 4; }
+    .view-desktop .audio-right-col { grid-column: span 4; }
+
+    .view-desktop .telemetry-grid,
+    .view-desktop .command-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 1500px) {
+    .view-desktop .telemetry-grid,
+    .view-desktop .command-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    /* Four cards in three columns leaves the performance card alone
+    on the last row with two empty cells beside it. Full width reads
+    as its own section, which is what the explanation text wants. */
+    .view-desktop #tab-telemetry .deck-card:last-child {
+        grid-column: 1 / -1;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    VISTE
    ═══════════════════════════════════════════════════════════════════════════ */
 .view-desktop .bottom-nav { display: none; }
@@ -1283,6 +1334,16 @@ position:absolute, so in a column they would end up on top of each other
 2. the section title, taken from data-col-title with ::before
 Without those two rules the Workstation view showed every tab
 overlapping in the same spot. */
+.viewport-content.desktop-all-active {
+/* The actual scrolling bug: the stacked sections are static content
+taller than the box, and the parent stayed overflow:hidden, so
+everything below the fold -- the whole telemetry tab and the whole
+commands tab -- was painted nowhere and reachable from nowhere. The
+single-tab version scrolls inside each absolute tab-view; the ALL
+version scrolls here, once, for the whole column. */
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+}
 .viewport-content.desktop-all-active .tab-view {
     display: flex;
     flex-direction: column;
@@ -1315,8 +1376,11 @@ clipped. */
 }
 
 .viewport-content.desktop-all-active .audio-workspace {
-    grid-template-columns: 1fr 1.25fr;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
 }
+.viewport-content.desktop-all-active .audio-left-col { grid-column: span 4; }
+.viewport-content.desktop-all-active .audio-mid-col { grid-column: span 4; }
+.viewport-content.desktop-all-active .audio-right-col { grid-column: span 4; }
 .viewport-content.desktop-all-active .audio-right-col { gap: var(--gap); }
 .viewport-content.desktop-all-active .command-grid { gap: var(--gap); }
 .viewport-content.desktop-all-active .deck-footer { display: none; }
@@ -1405,12 +1469,21 @@ overflows instead of narrowing. */
     }
 }
 
-/* Below 400px the fixed 150px columns go away too: they are the tail
-of the mixer, and at 360px there is no room left for them. */
+/* Below 560px the header keeps the dot and drops the words: the pill
+text is status, not control, and on a narrow phone it is what pushes
+the GPU and mute switches out of reach. */
+@media (max-width: 560px) {
+    .connection-pill #connection-label { display: none; }
+}
+
+/* Below 430px the fixed 150px slider column is the tail
+of the mixer, and at 360px there is no room left for them. The slider
+moves to its own row instead of disappearing: hiding the value as well
+left only the mute button, a channel with no level and no number. */
 @media (max-width: 430px) {
     .mic-fader-strip, .sink-fader-strip { grid-template-columns: auto 1fr; }
-    .mic-fader-strip > :nth-child(3),
-    .sink-fader-strip > :nth-child(3) { display: none; }
+    .mic-fader-strip .strip-slider-box,
+    .sink-fader-strip .strip-slider-box { grid-column: 1 / -1; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

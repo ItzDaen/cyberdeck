@@ -27,6 +27,18 @@ import re
 import sys
 
 PLASMA = pathlib.Path("/usr/lib/qt6/qml/org/kde/plasma")
+# The desktop's own QML lives here, not in the module tree: the folder
+# view delegate, the logout OSD, the panel configuration. It declares
+# the same imagePath/prefix pairs, and a check that only reads the
+# module tree misses them.
+PLASMA_EXTRA = pathlib.Path("/usr/share/plasma")
+
+# Sets this theme does not ship on purpose: Plasma falls back to
+# desktoptheme/default/widgets/ for any set the active theme has not
+# got, and Breeze draws these two better than the versions written
+# here ever did (see the note in tools/genera-assets-plasma.py). A
+# missing file here is a decision, not a defect.
+FALLBACK_INTENZIONALE = {"widgets/slider", "widgets/switch"}
 
 
 def richieste() -> dict[str, dict]:
@@ -40,31 +52,58 @@ def richieste() -> dict[str, dict]:
     for a prefix called `control`.
     """
     per_set: dict[str, dict] = collections.defaultdict(
-        lambda: {"elementId": set(), "prefix": set(), "espressioni": 0})
-    for f in PLASMA.rglob("*.qml"):
-        try:
-            testo = f.read_text(errors="replace")
-        except Exception:
-            continue
-        for m in re.finditer(r'KSvg\.(?:Svg|FrameSvgItem)\s*\{', testo):
-            # the block ends at the next closing brace that does not
-            # reopen: that is the simplest way not to read into the next
-            # object
-            start = m.end()
-            fine = testo.find("\n        }", start)
-            blocco = testo[start:fine if fine != -1 else start + 3000]
-            ip = re.search(r'imagePath:\s*"([^"]+)"', blocco)
-            if not ip:
+        lambda: {"elementId": set(), "prefix": set(), "espressioni": 0,
+                 "dinamiche": set(), "da": set()})
+    radici = [p for p in (PLASMA, PLASMA_EXTRA) if p.is_dir()]
+    for radice in radici:
+        for f in radice.rglob("*.qml"):
+            try:
+                testo = f.read_text(errors="replace")
+            except Exception:
                 continue
-            nome = ip.group(1)
-            per_set[nome]["elementId"] |= set(
-                re.findall(r'elementId:\s*"([^"]+)"', blocco))
-            for pm in re.finditer(r'prefix:\s*(.+)', blocco):
-                valore = pm.group(1).strip().rstrip(",")
-                if valore.startswith('"'):
-                    per_set[nome]["prefix"].add(valore.strip('"'))
-                else:
-                    per_set[nome]["espressioni"] += 1
+            for m in re.finditer(r'KSvg\.(?:Svg|FrameSvgItem)\s*\{', testo):
+                # the block ends at the next closing brace that does not
+                # reopen: that is the simplest way not to read into the next
+                # object
+                start = m.end()
+                fine = testo.find("\n        }", start)
+                blocco = testo[start:fine if fine != -1 else start + 3000]
+                ip = re.search(r'imagePath:\s*"([^"]+)"', blocco)
+                if not ip:
+                    continue
+                nome = ip.group(1)
+                per_set[nome]["elementId"] |= set(
+                    re.findall(r'elementId:\s*"([^"]+)"', blocco))
+                per_set[nome]["da"].add(str(f))
+                for pm in re.finditer(r'prefix:\s*(.+)', blocco):
+                    valore = pm.group(1).strip().rstrip(",")
+                    if valore.startswith('"'):
+                        per_set[nome]["prefix"].add(valore.strip('"'))
+                    elif valore.startswith("["):
+                        # A fallback chain, not an expression: KSvg tries
+                        # each prefix in order (`["focus-background",
+                        # "normal"]` paints normal when the first is
+                        # absent). Missing members are not defects, so
+                        # only the literals are recorded for the report
+                        # below, and the chain counts as covered if any
+                        # member is.
+                        catena = re.findall(r'"([^"]+)"', valore)
+                        per_set[nome]["dinamiche"] |= set(catena)
+                        per_set[nome].setdefault("catene", []).append(catena)
+                    else:
+                        per_set[nome]["espressioni"] += 1
+                        # A dynamic prefix is still a finite set of names:
+                        # every branch of the expression is a quoted
+                        # string. They cannot be checked as requests --
+                        # only one branch runs at a time -- but they can
+                        # be listed, so a family that only exists while
+                        # something is chosen stops being invisible.
+                        # That is how `selected` and `selected+hover`
+                        # hid in Highlight.qml while viewitem shipped
+                        # without them.
+                        per_set[nome]["dinamiche"] |= {
+                            d for d in re.findall(r'"([^"]+)"', valore)
+                            if d}
     return per_set
 
 
@@ -86,6 +125,9 @@ def main() -> int:
             continue
         f = radice / (nome + ".svg")
         if not f.exists():
+            if nome in FALLBACK_INTENZIONALE:
+                print(f"  ~ {nome}: not shipped, Breeze fallback (intentional)")
+                continue
             print(f"  ✗ {nome}: file missing")
             problemi += 1
             continue
@@ -115,6 +157,40 @@ def main() -> int:
                   + (f"  (+{extra} extra states)" if extra > 0 else ""))
 
     print()
+    # Dynamic prefixes no static check can resolve: every quoted branch
+    # is listed, and the ones the files do not have are flagged for a
+    # human to read the code. Warnings, not failures -- only one branch
+    # runs at a time, so absence is "go and look", not "broken". But
+    # absence plus a symptom is exactly the viewitem story, so the list
+    # is printed rather than counted in `espressioni` and forgotten.
+    avvisi = 0
+    for nome, cosa in sorted(rich.items()):
+        if not (nome.startswith("widgets/") or nome.startswith("solid/")):
+            continue
+        if nome in FALLBACK_INTENZIONALE:
+            continue
+        f = radice / (nome + ".svg")
+        if not f.exists():
+            continue
+        ids, pfx = fornito(f.read_text(encoding="utf-8"))
+
+        def presente(d: str) -> bool:
+            return any(i == d or i.startswith(d + "-") for i in ids)
+        # Chain members inherit the chain's coverage: ["focus-background",
+        # "normal"] resolves as long as one of them exists.
+        coperte_catena = {m for cat in cosa.get("catene", [])
+                          for m in cat if presente(m)}
+        scoperte = {d for d in cosa["dinamiche"]
+                    if not presente(d)
+                    and not any(d in cat and (set(cat) & coperte_catena)
+                                for cat in cosa.get("catene", []))}
+        if scoperte:
+            avvisi += 1
+            print(f"  ! {nome}: dynamic prefixes missing from the file, "
+                  f"verify by reading the code: {', '.join(sorted(scoperte))}")
+    if avvisi:
+        print()
+
     if problemi:
         print(f"  {problemi} sets do not satisfy the requests")
     else:
